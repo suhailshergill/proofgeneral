@@ -24,6 +24,10 @@
 ;;   beginning of the module? 
 
 ;; $Log$
+;; Revision 1.10.2.11  1997/09/19 11:23:23  tms
+;; o replaced ?\; by proof-terminal-char
+;; o fixed a bug in proof-process-active-terminator
+;;
 ;; Revision 1.10.2.10  1997/09/12 12:33:41  tms
 ;; improved lego-find-and-forget
 ;;
@@ -843,7 +847,7 @@ at the end of locked region (after inserting a newline)."
 	  (if (or (> i 0) (not (= (char-syntax c) ?\ )))
 	      (progn (aset str i c) (setq i (+ 1 i))))	  
 	  (forward-char)
-	  (if (= c ?\;)
+	  (if (= c proof-terminal-char)
 	      (progn 
 		(setq alist (cons (list (substring str 0 i) (point)) alist))
 		(if (>= (point) pos) (setq done t) (setq i 0)))))))
@@ -905,16 +909,16 @@ deletes the region corresponding to the proof sequence."
 	    (setq ct (+ 1 ct)))
 	(setq i 0)
 	(while (< i (length str)) 
-	  (if (= (aref str i) ?\;) (setq ct (+ 1 ct)))
+	  (if (= (aref str i) proof-terminal-char) (setq ct (+ 1 ct)))
 	  (setq i (+ 1 i))))
       (setq sext (extent-at (extent-end-position sext) nil 'type nil 'after)))
-  (concat "Undo " (int-to-string ct) ";")))
+  (concat "Undo " (int-to-string ct) proof-terminal-string)))
 
 (defun lego-find-and-forget (sext) 
   (let (str ans)
     (while sext
       (if (eq (extent-property sext 'type) 'goalsave)
-	  (setq ans (concat "Forget " (extent-property sext 'name) ";")
+	  (setq ans (concat "Forget " (extent-property sext 'name) proof-terminal-string)
 		sext nil)
 	(setq str (extent-property sext 'cmd))
 	(cond
@@ -923,25 +927,26 @@ deletes the region corresponding to the proof sequence."
 	 ((string-match (concat "\\`" (lego-decl-defn-regexp "[:|=]")) str)
 	  (let ((ids (match-string 1 str))) ; returns "a,b"
 	    (string-match lego-id ids)	; matches "a"
-	    (setq ans (concat "Forget " (match-string 1 ids) ";")
+	    (setq ans (concat "Forget " (match-string 1 ids) proof-terminal-string)
 		  sext nil)))
 
 	 ((string-match "\\`\\(Inductive\\|\\Record\\)\\s-*\\[\\s-*\\w+\\s-*:[^;]+\\`Parameters\\\s-*\\[\\s-*\\(\\w+\\)\\s-*:" str)
-	  (setq ans (concat "Forget " (match-string 2 str) ";")
+	  (setq ans (concat "Forget " (match-string 2 str) proof-terminal-string)
 		sext nil))
 
 	 ((string-match "\\`\\(Inductive\\|Record\\)\\s-*\\[\\s-*\\(\\w+\\)\\s-*:" str)
-	  (setq ans (concat "Forget " (match-string 2 str) ";")
+	  (setq ans (concat "Forget " (match-string 2 str) proof-terminal-string)
 		sext nil))
 
 	 ((string-match "\\`\\s-*Module\\s-+\\(\\S-+\\)\\W" str)
-	  (setq ans (concat "ForgetMark " (match-string 1 str) ";")
+	  (setq ans (concat "ForgetMark " (match-string 1 str) proof-terminal-string)
 		sext nil))
 	 (t 
 	  (setq sext 
 		(extent-at (extent-end-position sext) nil 'type nil 
 			   'after))))))
-    (or ans "echo \"Nothing more to Forget.\";")))
+    (or ans
+	(concat "echo \"Nothing more to Forget.\"" proof-terminal-string))))
 
 (defun proof-retract-setup-actions (start end proof-command delete-region)
   (list (list (make-extent start end)
@@ -1072,17 +1077,16 @@ current command."
   between the previous and the new terminator to the proof process."
   (proof-check-process-available)
   (let ((mrk (point)) ins semis)
-
-    ;; are we looking at a whitespace character or the end of the buffer?
-    (if (looking-at "\\s-\\|\\'") 
-	  (if (not (re-search-backward "\\S-" (proof-end-of-locked) t))
-	      (error "Nothing to do!")))
-    (if (not (= (char-after (point)) ?\;))
-	(progn (forward-char) (insert ";") (setq ins t)))
+    (if (looking-at "\\s-\\|\\'\\|\\w") 
+	(if (not (re-search-backward "\\S-" (proof-end-of-locked) t))
+	    (error "Nothing to do!")))
+    (if (not (= (char-after (point)) proof-terminal-char))
+	(progn (forward-char) (insert proof-terminal-string) (setq ins t)))
     (setq semis (proof-segment-up-to (point)))    
     (if (null semis) (error "Nothing to do!"))
     (if (eq 'comment (car semis)) 
-	(progn (if ins (backward-delete-char 1)) (goto-char mrk) (insert ";"))
+	(progn (if ins (backward-delete-char 1))
+	       (goto-char mrk) (insert proof-terminal-string))
       (goto-char (cadar (last semis)))
       (proof-start-queue (proof-end-of-locked) (point)
 			 (proof-semis-to-vanillas semis)))))
