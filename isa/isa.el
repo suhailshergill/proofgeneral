@@ -39,8 +39,6 @@
 ;	 (mapcar (lambda (str) (list 'const str))
 ;		 (split-string-by-char
 ;		  (substring (shell-command-to-string "isatool findlogics") 0 -1)
-;                                                      ^^^^^^^
-; MW: Must not assume isatool in PATH!!!  Use $ISATOOL instead.
 ;		  ?\ )))
 ;  :group 'isabelle)
 
@@ -165,8 +163,9 @@ and script mode."
    proof-shell-cd-cmd			"Library.cd \"%s\""
 
    ;; Escapes for filenames inside ML strings.
-   ;; We also make a hack for Isabelle, by switching from backslashes
-   ;; to forward slashes if it looks like we're running on Windows.
+   ;; We also make a hack for a bug in Isabelle, by switching from 
+   ;; backslashes to forward slashes if it looks like we're running
+   ;; on Windows.
    proof-shell-filename-escapes		
    (if (fboundp 'win32-long-file-name)	; rough test for XEmacs on win32 
        ;; Patterns to unixfy names.  Avoids a deliberate bomb in Isabelle which
@@ -175,6 +174,8 @@ and script mode."
      ;; Normal case: quotation for backslash, quote mark.
      '(("\\\\" . "\\\\") ("\""   . "\\\"")))
 
+
+   ;; FIXME: the next two are probably only good for NJ/SML
    proof-shell-interrupt-regexp         "Interrupt"
    proof-shell-error-regexp		"^\364\\*\\*\\*\\|^.*Error:\\|^uncaught exception \\|^Exception-\\( \\|$\\)"
    
@@ -189,11 +190,19 @@ and script mode."
    proof-shell-end-goals-regexp		"\367"
    proof-shell-goal-char	        ?\370
 
-   proof-shell-proof-completed-regexp	"^No subgoals!"
+   ;; FIXME da: this needs improvement.  I don't know why just
+   ;; "No subgoals!" isn't enough.  (Maybe anchored to end-goals
+   ;; for safety).  At the moment, this regexp reportedly causes
+   ;; overflows with large proof states. 
+   proof-shell-proof-completed-regexp
+   (concat proof-shell-start-goals-regexp
+	   "\\(\\(.\\|\n\\)*\nNo subgoals!\n\\)"
+	   proof-shell-end-goals-regexp)
 
    ;; initial command configures Isabelle by hacking print functions.
    ;; FIXME: temporary hack for almost enabling/disabling printing.
-   proof-shell-init-cmd                 "val pg_saved_gl = ref (!goals_limit); fun proofgeneral_enable_pr () = goals_limit:= !pg_saved_gl; fun proofgeneral_disable_pr() = (pg_saved_gl := (if (!goals_limit)>0 then !goals_limit else !pg_saved_gl); goals_limit := 0); ProofGeneral.init false;"
+;   proof-shell-init-cmd                 "val pg_saved_gl = ref (!goals_limit); fun proofgeneral_enable_pr () = goals_limit:= !pg_saved_gl; fun proofgeneral_disable_pr() = (pg_saved_gl := !goals_limit; goals_limit := 0); ProofGeneral.init false;"
+   proof-shell-init-cmd                 "ProofGeneral.init false;"
    proof-shell-restart-cmd		"ProofGeneral.isa_restart();"
    proof-shell-quit-cmd			"quit();"
    
@@ -208,6 +217,8 @@ and script mode."
    ;; Dirty hack to allow font-locking for output based on hidden
    ;; annotations, see isa-output-font-lock-keywords-1
    proof-shell-leave-annotations-in-output t
+
+   proof-goals-display-qed-message	t
 
    ;; === ANNOTATIONS  === ones here are broken
    proof-shell-result-start	        "\372 Pbp result \373"
@@ -271,7 +282,7 @@ and script mode."
 (defun isa-update-thy-only (file try wait)
   "Tell Isabelle to update current buffer's theory, and all ancestors."
   ;; First make sure we're in the right directory to take care of
-  ;; relative "files" paths inside theory file.
+  ;; relative "files" paths inside theory file.  (Isabelle bug??)
   (proof-cd-sync)
   (proof-shell-invisible-command
    (proof-format-filename
@@ -341,9 +352,9 @@ proof-shell-retract-files-regexp."
   (isa-response-mode-config)))
 
 (eval-and-compile			; to define vars for byte comp.
-(define-derived-mode isa-goals-mode proof-goals-mode
+(define-derived-mode isa-pbp-mode pbp-mode
   "Isabelle goals" nil
-  (isa-goals-mode-config)))
+  (isa-pbp-mode-config)))
 
 (eval-and-compile			; to define vars for byte comp.
 (define-derived-mode isa-proofscript-mode proof-mode
@@ -566,7 +577,7 @@ you will be asked to retract the file or process the remainder of it."
 (defun isa-pre-shell-start ()
   (setq proof-prog-name		isabelle-prog-name)
   (setq proof-mode-for-shell    'isa-shell-mode)
-  (setq proof-mode-for-goals	'isa-goals-mode)
+  (setq proof-mode-for-pbp	'isa-pbp-mode)
   (setq proof-mode-for-response 'isa-response-mode))
 
 (defun isa-mode-config ()
@@ -605,8 +616,8 @@ you will be asked to retract the file or process the remainder of it."
   (isa-init-output-syntax-table)
   (proof-response-config-done))
 
-(defun isa-goals-mode-config ()
-  ;; FIXME: next two broken, of course, as is PBP everywhere except LEGO.
+(defun isa-pbp-mode-config ()
+  ;; FIXME: next two broken, of course, as is all PBP everywhere.
   (setq pbp-change-goal "Show %s.")	
   (setq pbp-error-regexp proof-shell-error-regexp)
   (isa-init-output-syntax-table)
@@ -627,8 +638,8 @@ you will be asked to retract the file or process the remainder of it."
       ;; fontification for tokens themselves  (FIXME: broken)
       '(("\\\\<[A-Za-z][A-Za-z0-9_']*>" (0 font-lock-type-face)))
       proof-xsym-activate-command
-      "print_mode := ([\"xsymbols\",\"symbols\"] @ ! print_mode)"
+      "print_mode := (!print_mode union [\"xsymbols\",\"symbols\"])"
       proof-xsym-deactivate-command
-      "print_mode := (! print_mode \\\\ [\"xsymbols\",\"symbols\"])")
+      "print_mode := filter_out (fn x=>(rev (explode \"symbols\") prefix rev (explode x))) (!print_mode)")
 
 (provide 'isa)
