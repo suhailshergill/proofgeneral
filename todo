@@ -27,9 +27,21 @@ D		e.g. desirable to fix at some point
 X (Low)		e.g. probably not worth spending time on
 
 
-*** Scheduled improvements for 3.2
+*** Outstanding bugs to investigate
 
-**** A Doc new bits: font lock keywords, filename %e, %r.
+C Undoing comments with FSF Emacs weirdness.
+ Noticed with Emacs 20.6.1.  Seems to affect all provers.
+ Workaround:  use C-c C-RET or C-c C-r instead.
+ Nasty workaround: (setq debug-on-quit t), hit "c" on each hang
+ to continue.
+ Seems to get stuck looping in {coq,lego,whetever}-find-and-forget
+ but no problem when running with edebug edebug-defun on this function.
+ Maybe filter specific glitch to do with spans?
+
+C Problem with startup for Coq and HOL.  See BUGS.
+
+
+*** Scheduled improvements for 3.2
 
 **** A Add a new keymap(s) for proof assistants.
   Presently they naughtily bind C-c <letter> which are reserved for
@@ -41,8 +53,7 @@ X (Low)		e.g. probably not worth spending time on
     C-c C-x already seems to be a prefix?
 
 **** A Add efficiency improvement by turning on/off prover output.
-  Patch already added to pre-release.
-  Does it need adjusting to turn on output in case of error/interrupt?
+  Patch already tested.
 
 **** C Add improvements to script movement in electric terminator mode.
   Some commented regions in code.  E.g. automatic newline/space after
@@ -51,6 +62,16 @@ X (Low)		e.g. probably not worth spending time on
 **** B Make proof-{script,shell,goals,resp}-font-lock-keywords the
   default way of setting font-lock-keywords, removing from
   proof-easy-config and changing each supported prover instance.
+
+**** A Fixup silly mess introduced by Isabelle's over the top 
+  proof-shell-proof-completed-regexp.  We shouldn't match on
+  the whole output, that was the point of start-goals and end-goals.
+  Instead we should treat the proof-completed as a case within
+  start-goals and end-goals, as well as outside it for other
+  provers.  Then automatically display will be in right place.
+  Shouldn't need proof-goals-display-qed-message any more.
+  This change not yet in 3.1 because it risks changing behaviour
+  of other provers.
 
 **** B Modify response display routine a bit to center around recent output,
   or display top, for long output.    Makes better sense for big 
@@ -71,7 +92,6 @@ X (Low)		e.g. probably not worth spending time on
 **** C More flexible help configuration is needed.  HOL has some nice
   on-line help but no way in PG to help by library.  Perhaps
   a help browser is needed?  At least, optional arg to help command.
-  [patch ready and waiting to go in]
 
 **** D Remove pbp.el, unused file.
 
@@ -79,20 +99,6 @@ X (Low)		e.g. probably not worth spending time on
 
 ** 2. Things to in the generic interface
 
-*** X Multiple session architecture (difficult)
-
-  With some major re-engineering, PG could be made to work with multiple
-  provers at once, and multiple instances of the same prover.
-
-  Ideas: - introduce "session" notion
-	 - have list of current sessions in progress,
-	   values of active scripting buffer and other per-session vars
-	   for each one
-         - proof shell filter and other functions must automatically
-           switch context to correct session
-         - force everybody to use proof-easy-config macro, and set
-	   <prover>-var automatically from <proof>-var there,
-	   to get defaults for new sessions.
 
 *** C Is there a way to make colours defined for x work in mswindows too?
 
