@@ -127,7 +127,7 @@ and script mode."
    proof-context-command	"ProofGeneral.show_context()"
    proof-info-command		"ProofGeneral.help()"
    proof-kill-goal-command	"ProofGeneral.kill_goal();"
-   proof-find-theorems-command  "ProofGeneral.thms_containing [\"%s\"]"
+   proof-find-theorems-command  "ProofGeneral.thms_containing (space_explode \",\" \"%s\");"
    proof-shell-start-silent-cmd "proofgeneral_disable_pr();"
    proof-shell-stop-silent-cmd  "proofgeneral_enable_pr();"   
    ;; command hooks
