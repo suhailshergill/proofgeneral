@@ -1,9 +1,12 @@
 ;; lego.el Major mode for LEGO proof assistants
-;; Copyright (C) 1994, 1995, 1996, 1997 LFCS Edinburgh. 
-;; Author: Thomas Schreiber and Dilip Sequeira
+;; Copyright (C) 1994-1997 LFCS Edinburgh. 
+;; Author: Thomas Kleymann and Dilip Sequeira
 ;; Maintainer: LEGO Team <lego@dcs.ed.ac.uk>
 
 ;; $Log$
+;; Revision 1.20.2.8  1997/10/09 14:34:31  tms
+;; *** empty log message ***
+;;
 ;; Revision 1.20.2.7  1997/10/08 08:22:33  hhg
 ;; Updated undo, fixed bugs, more modularization
 ;;
@@ -71,7 +74,7 @@
 ;; `lego-www-refcard' ought to be set to
 ;; "ftp://ftp.dcs.ed.ac.uk/pub/lego/refcard.dvi.gz", but  
 ;;    a) w3 fails to decode the image before invoking xdvi
-;;    b) ange-ftp and efs cannot handle Solaris ftp servers
+;;    b) our ftp server is wrongly configured
 
 
 (defvar lego-library-www-page
@@ -130,10 +133,13 @@
 ;;   Derived modes - they're here 'cos they define keymaps 'n stuff ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+
+;; initialises lego-shell-mode-map
 (define-derived-mode lego-shell-mode proof-shell-mode
    "lego-shell" "Inferior shell mode for lego shell"
    (lego-shell-mode-config))
 
+;; initialises lego-mode-map
 (define-derived-mode lego-mode proof-mode
    "lego" "Lego Mode"
    (lego-mode-config))
@@ -152,9 +158,7 @@
 	      :active (proof-shell-live-buffer)]
             ["Display proof state" lego-prf
 	      :active (proof-shell-live-buffer)]
-           ["Kill the current refinement proof"
-            lego-killref  :active (proof-shell-live-buffer)]
-           ["Exit LEGO" proof-shell-exit
+	    ["Exit LEGO" proof-shell-exit
 	     :active (proof-shell-live-buffer)]
            "----"
            ["Find definition/declaration" find-tag-other-window t]
@@ -169,17 +173,13 @@
 	      t]
             ))))
 
-(defvar lego-menu  
-  (append '("LEGO Commands"
-            ["Toggle active ;" proof-active-terminator-minor-mode
-	     :active t
-	     :style toggle
-             :selected proof-active-terminator-minor-mode]
-            "----")
-          (list (if (string-match "XEmacs 19.1[2-9]" emacs-version)
-		    "--:doubleLine" "----"))
-          lego-shared-menu
-          )
+(defvar lego-menu
+  `("LEGO Commands"
+    ["Toggle active ;" proof-active-terminator-minor-mode
+     :active t
+     :style toggle
+     :selected proof-active-terminator-minor-mode]
+    "----" "--:doubleLine" ,@lego-shared-menu)
   "*The menu for LEGO.")
 
 (defvar lego-shell-menu lego-shared-menu
@@ -194,7 +194,6 @@
 		  lego-mode-map
 		  "Menu used lego mode."
 		  (cons "LEGO" (cdr lego-menu)))
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;   Code that's lego specific                                      ;;
