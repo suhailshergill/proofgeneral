@@ -4,14 +4,13 @@
 ;; code.
 
 ;; Maintainer: LEGO Team <lego@dcs.ed.ac.uk>
-;; Time-stamp: <19 Jun 97 tms /home/tms/emacs/xemacs/lego/elisp/lego.el>
+;; Time-stamp: <05 Dec 96 tms /home/tms/elisp/lego.el>
 ;; Thanks to David Aspinall, Robert Boyer, Rod Burstall,
 ;;           James McKinna, Mark Ruys, Martin Steffen, Perdita Stevens  
 
 (require 'easymenu)
 (require 'font-lock)
 (require 'outline)
-(require 'proof)
 
 ; Configuration                                  
 
@@ -517,12 +516,14 @@
         proof-shell-noise-regexp "Discharge\\.\\. "
         proof-shell-assumption-regexp lego-id
         proof-shell-goal-regexp lego-goal-regexp
-        proof-shell-first-special-char ?\370
+        proof-shell-first-special-char ?\360
+        proof-shell-wakeup-char "\371"
         proof-shell-start-char ?\372
         proof-shell-end-char ?\373
         proof-shell-field-char ?\374
         proof-shell-goal-char ?\375
-        proof-shell-wakeup-character "\371"
+	proof-shell-eager-annotation-start "\376"
+	proof-shell-eager-annotation-end "\377"
         proof-shell-annotated-prompt-string "Lego> \371"
         proof-shell-result-start "\372 Pbp result \373"
         proof-shell-result-end "\372 End Pbp result \373"

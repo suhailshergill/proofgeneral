@@ -9,9 +9,9 @@
 
 ;; TO DO:
 
-;; Lego "does" declarations up to error, so need to fixup these properly.
 ;; Make lego code buffer local
 ;; Fill in the other kinds of defn in find-and-forget
+;; Need to think about fixing up errors caused by pbp-generated commands
 
 (require 'compile)
 (require 'comint)
@@ -79,7 +79,7 @@
 ;;  Generic config for script management                            ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(deflocal proof-shell-wakeup-character ""
+(deflocal proof-shell-wakeup-char ""
   "A character terminating the prompt in annotation mode")
 
 (deflocal proof-shell-annotated-prompt-string ""
@@ -418,6 +418,8 @@
 (deflocal proof-shell-start-char nil "annotation start")
 (deflocal proof-shell-end-char nil "annotation end")
 (deflocal proof-shell-field-char nil "annotated field end")
+(deflocal proof-shell-eager-annotation-start nil "eager ann. field start")
+(deflocal proof-shell-eager-annotation-end nil "eager ann. field end")
 
 (defconst proof-shell-assumption-regexp nil
   "A regular expression matching the name of assumptions.")
@@ -462,10 +464,10 @@
 	   ((= c proof-shell-goal-char)
 	    (setq topl (append topl (list (+ 1 op)))))
 	   ((= c proof-shell-start-char)	    
-	    (setq ap (aref string (incf ip)))
+	    (setq ap (- (aref string (incf ip)) 32))
 	    (incf ip)
 	    (while (not (= (aref string ip) proof-shell-end-char))
-	      (aset ann ap (aref string ip))
+	      (aset ann ap (- (aref string ip) 32))
 	      (incf ap)
 	      (incf ip))
 	    (setq stack (cons op (cons (substring ann 0 ap) stack))))
@@ -575,6 +577,8 @@
 (defun proof-shell-insert (string)
   (goto-char (point-max))
   (insert (funcall proof-shell-config) string)
+  (if (not (extent-property proof-mark-ext 'detached))
+      (set-extent-endpoints proof-mark-ext (point) (point)))
   (comint-send-input))
 
 (defun proof-send (string)
@@ -665,8 +669,21 @@
 			    (cons (list ext cmd 'proof-done-advancing)
 				  (cdr ls)))))))
 
+(defun proof-shell-popup-eager-annotation ()
+  (let (mrk str)
+    (save-excursion 
+      (goto-char (point-max))
+      (search-backward proof-shell-eager-annotation-start)
+      (setq mrk (+ 1 (point)))
+      (search-forward proof-shell-eager-annotation-end)
+      (setq str (buffer-substring mrk (- (point) 1)))
+      (display-buffer (set-buffer proof-shell-pbp-buffer))
+      (insert str "\n"))))
+      
 (defun proof-shell-filter (str) 
-  (if (string-match proof-shell-wakeup-character str)
+  (if (string-match proof-shell-eager-annotation-end str)
+      (proof-shell-popup-eager-annotation))
+  (if (string-match proof-shell-wakeup-char str)
       (if (extent-property proof-mark-ext 'detached)
 	  (progn
 	    (goto-char (point-min))
@@ -750,7 +767,7 @@
     (set-extent-endpoints proof-locked-ext 1 end)
     (set-extent-start proof-queue-ext end)
     (setq cmd (extent-property ext 'cmd))
-    (if (not (string= "Save" (substring cmd 0 4)))
+    (if (or (< (length cmd) 4) (not (string= "Save" (substring cmd 0 4))))
 	(set-extent-property ext 'highlight 'mouse-face)
       (if (string-match "Save\\s-+\\([^;]+\\)" cmd)
 	  (setq nam (match-string 1 cmd)))
@@ -839,13 +856,19 @@
     (mapcar-extents 'delete-extent nil (current-buffer) start end  nil 'type)
     (delete-extent ext)))
 
+(deflocal lego-undoable-commands-regexp
+  (ids-to-regexp '("Refine" "Intros" "intros" "Next" "Qrepl" "Claim" "Equiv"
+		   "For" "Repeat" "Succeed" "Fail" "Try" "Assumption" "UTac"
+		   "Qnify" "AndE" "AndI" "exE" "exI" "orIL" "orIR" "orE"
+		   "ImpI" "impE" "notI" "notE" "allI" "allE")) "Undoable list")
+
 (defun lego-count-undos (sext)
   (let ((ct 0) str i)
     (while sext
       (setq str (extent-property sext 'cmd))
       (if (eq (extent-property sext 'type) 'vanilla)
 	(if (string-match
-	     "Refine\\|Intros\\|intros\\|Next\\|Qrepl\\|Claim\\|Equiv\\|For\\|Repeat\\|Succeed\\|Fail\\|Try" str)
+	     "Refine\\|Intros\\|intros\\|Next\\|Qrepl\\|Claim\\|Equiv\\|For\\|Repeat\\|Succeed\\|Fail\\|Try\\|" str)
 	    (setq ct (+ 1 ct)))
 	(setq i 0)
 	(while (< i (length str)) 
@@ -871,7 +894,7 @@
 	  (setq sext 
 		(extent-at (extent-end-position sext) nil 'type nil 
 			   'after))))))
-    (or ans "Echo Nothing more to Forget;")))
+    (or ans "echo \"Nothing more to Forget.\"")))
 
 (defun proof-retract-until-point ()
   (interactive)
@@ -970,20 +993,19 @@ current command."
 
 (defun proof-process-active-terminator ()
   (proof-check-process-available)
-  (if (= (char-after (point)) ?\;) (forward-char))
-
   (let ((mrk (point)) ins semis)
-    (if (not (re-search-backward "\\S-" (proof-end-of-locked) t))
-	(error "Nothing to do!"))
-  (if (not (= (char-after (point)) ?\;))
-      (progn (insert ";") (setq ins t)))
-  (setq semis (proof-segment-up-to (point)))    
-  (if (null semis) (error "Nothing to do!"))
-  (if (eq 'comment (car semis)) 
-      (progn (if ins (backward-delete-char)) (goto-char mrk) (insert ";"))
-    (goto-char (cadar (last semis)))
-    (proof-start-queue (proof-end-of-locked) (point)
-		       (proof-semis-to-vanillas semis)))))
+    (if (looking-at "\\s-")
+	  (if (not (re-search-backward "\\S-" (proof-end-of-locked) t))
+	      (error "Nothing to do!")))
+    (if (not (= (char-after (point)) ?\;))
+	(progn (insert ";") (setq ins t)))
+    (setq semis (proof-segment-up-to (point)))    
+    (if (null semis) (error "Nothing to do!"))
+    (if (eq 'comment (car semis)) 
+	(progn (if ins (backward-delete-char 1)) (goto-char mrk) (insert ";"))
+      (goto-char (cadar (last semis)))
+      (proof-start-queue (proof-end-of-locked) (point)
+			 (proof-semis-to-vanillas semis)))))
 
 
 
