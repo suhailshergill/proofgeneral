@@ -21,6 +21,11 @@
 ;; o proof-undo-last-successful-command needs to be extended so that
 ;;   it deletes regions of the script buffer when invoked outside a proof 
 
+;; $Log$
+;; Revision 1.10.2.9  1997/09/11 15:39:19  tms
+;; fixed a bug in proof-retract-until-point
+;;
+
 (require 'compile)
 (require 'comint)
 (require 'etags)
@@ -966,7 +971,7 @@ proof script corresponding to the proof command sequence."
 	(setq ext (extent-at (extent-start-position ext) nil
 			     'type nil 'before)))))
     (if (eq done 'goal) 
-	(if (< (extent-end-position ext) (point))
+	(if (<= (extent-end-position ext) (point))
 	    (setq actions
 		  (proof-retract-setup-actions
 		   start end (lego-count-undos sext) delete-region)
