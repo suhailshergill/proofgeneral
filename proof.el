@@ -10,8 +10,8 @@
 ;; TO DO:
 
 ;; Make lego code buffer local
-;; Fill in the other kinds of defn in find-and-forget
 ;; Need to think about fixing up errors caused by pbp-generated commands
+;; comments should be replaced by single spaces unless at start of line
 
 (require 'compile)
 (require 'comint)
@@ -383,30 +383,30 @@
     (apply 'concat (nreverse ls))))
 
 (defun pbp-construct-command ()
-  (save-excursion
-   (let ((ext (extent-at (point) () 'proof))
-         (top-ext (extent-at (point) () 'proof-top-element)))
-
-      (cond ((and (extentp top-ext) (extentp ext))
-	     (let* ((top-info (extent-property top-ext 'proof-top-element))
-		   (path
-		    (concat (cdr top-info)
-			    (proof-expand-path (extent-property ext 'proof)))))
-	       (set-buffer pbp-script-buffer)
-	       (proof-invisible-command
+  (let* ((ext (extent-at (point) () 'proof))
+	 (top-ext (extent-at (point) () 'proof-top-element))
+	 (top-info (extent-property top-ext 'proof-top-element)) 
+	 path cmd)
+    (if (extentp top-ext)
+	(cond 
+	 ((extentp ext)
+	  (setq path (concat (cdr top-info)
+			     (proof-expand-path (extent-property ext 'proof))))
+	  (setq cmd
 		(if (eq 'hyp (car top-info))
 		    (format pbp-hyp-command path)
-		  (format pbp-goal-command path)))))
-
-	     ((extentp top-ext)
-	      (let ((top-info (extent-property top-ext 'proof-top-element)))
-		(save-excursion
-		  (set-buffer pbp-script-buffer)		    
-		  (if (eq 'hyp (car top-info))
-		      (proof-invisible-command 
-		       (format pbp-hyp-command (cdr top-info)))
-		    (proof-insert-pbp-command 
-		     (format pbp-change-goal (cdr top-info)))))))))))
+		  (format pbp-goal-command path)))
+	  (pop-to-buffer pbp-script-buffer)
+	  (proof-invisible-command cmd))
+	 (t
+	  (if (eq 'hyp (car top-info))
+	      (progn
+		(setq cmd (format pbp-hyp-command (cdr top-info)))
+		(pop-to-buffer pbp-script-buffer)
+		(proof-invisible-command cmd))
+	      (setq cmd (format pbp-change-goal (cdr top-info)))
+	      (pop-to-buffer pbp-script-buffer)
+	      (proof-insert-pbp-command cmd)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;          Turning annotated output into pbp goal set              ;;
@@ -752,7 +752,6 @@
 		     cmd))
 
 (defun proof-insert-pbp-command (cmd)
-  (set-buffer proof-shell-script-buffer)
   (proof-check-process-available)
   (let (start ext)
     (goto-char (setq start (proof-end-of-locked)))
@@ -760,7 +759,8 @@
     (setq ext (make-extent start (point)))
     (set-extent-property ext 'type 'pbp)
     (set-extent-property ext 'cmd cmd)
-    (proof-start-queue start (point) (list ext cmd 'proof-done-advancing))))
+    (proof-start-queue start (point) (list (list ext cmd 
+						 'proof-done-advancing)))))
 
 (defun proof-done-advancing (ext)
   (let ((end (extent-end-position ext)) cmd nam gext next)
@@ -769,8 +769,9 @@
     (setq cmd (extent-property ext 'cmd))
     (if (or (< (length cmd) 4) (not (string= "Save" (substring cmd 0 4))))
 	(set-extent-property ext 'highlight 'mouse-face)
-      (if (string-match "Save\\s-+\\([^;]+\\)" cmd)
-	  (setq nam (match-string 1 cmd)))
+      (if (string-match 
+	   "\\(Save\\|SaveFrozen\\|SaveUnfrozen\\)\\s-+\\([^;]+\\)" cmd)
+	  (setq nam (match-string 2 cmd)))
       (setq gext ext)
       (while (progn (setq cmd (extent-property gext 'cmd))
 		    (not (string= "Goal" (substring cmd 0 4))))
@@ -779,7 +780,7 @@
 	(delete-extent gext)
 	(setq gext next))
       (if (null nam)
-	  (if (string-match "Goal\\s-+\\([^;]+\\)" cmd)
+	  (if (string-match "Goal\\s-+\\([^:]+\\)" cmd)
 	      (setq nam (match-string 1 cmd))
  	    (error "Oops... can't find Goal name!!!")))
       (set-extent-end gext end)
@@ -888,13 +889,19 @@
 	 ((string-match "\\`\\s-*\\[\\s-*\\(\\w+\\)\\s-*[:=]" str)
 	  (setq ans (concat "Forget " (match-string 1 str) ";")
 		sext nil))
-	 ((string-match "\\`\\s-*Module\\s-+\\(\\w+\\)\\W" str)
-	  (setq ans (concat "ForgetMark " (match-string 1 str) ";")))
+
+	 ((string-match "\\`Inductive\\s-*\\[\\s-*\\(\\w+\\)\\s-*:" str)
+	  (setq ans (concat "Forget " (match-string 1 str) ";")
+		sext nil))
+
+	 ((string-match "\\`\\s-*Module\\s-+\\(\\S-+\\)\\W" str)
+	  (setq ans (concat "ForgetMark " (match-string 1 str) ";")
+		sext nil))
 	 (t 
 	  (setq sext 
 		(extent-at (extent-end-position sext) nil 'type nil 
 			   'after))))))
-    (or ans "echo \"Nothing more to Forget.\"")))
+    (or ans "echo \"Nothing more to Forget.\";")))
 
 (defun proof-retract-until-point ()
   (interactive)
@@ -903,9 +910,9 @@
       (error "Must be running in a script buffer"))
   (let ((sext (extent-at (point) nil 'type))
 	(end (extent-end-position proof-locked-ext))
-	 ext start actions done)
+	ext start actions done)
     (if (null end) (error "No locked region"))
-    (if (< end (point)) (error "Outside locked region"))
+    (if (or (null sext) (< end (point))) (error "Outside locked region"))
     (setq start (extent-start-position sext))
     
     (setq ext (extent-at end nil 'type nil 'before))
@@ -926,7 +933,7 @@
 		  end start)
 	  (setq actions (list (list (make-extent (extent-start-position ext) 
 						 end)
-			      "KillRef;" 'proof-done-retracting))
+				    "KillRef;" 'proof-done-retracting))
 		end (extent-start-position ext))))
     (if (> end start) 
 	(setq actions (append actions (list 
@@ -998,7 +1005,7 @@ current command."
 	  (if (not (re-search-backward "\\S-" (proof-end-of-locked) t))
 	      (error "Nothing to do!")))
     (if (not (= (char-after (point)) ?\;))
-	(progn (insert ";") (setq ins t)))
+	(progn (forward-char) (insert ";") (setq ins t)))
     (setq semis (proof-segment-up-to (point)))    
     (if (null semis) (error "Nothing to do!"))
     (if (eq 'comment (car semis)) 
