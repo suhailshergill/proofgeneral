@@ -843,15 +843,15 @@ or `proof-script-parse-function'."
   :type 'string
   :group 'prover-config)
 
-
-(defcustom proof-script-use-new-parser nil
-  "Whether to use the new parsing mechanism, based on `proof-script-parse-function'.
-This is a stop-gap option in Proof General 3.2 added because
-the parsing functions went through several iterations and the final
-(but best) iteration was little tested."
+(defcustom proof-script-use-old-parser nil
+  "Whether to use the old parsing mechanism.
+This is a stop-gap option in Proof General 3.4 added for
+proof assistants which still depend on peculiarities of the old
+parsing functions. (Specific example: Isar relies on certain
+text being sent to prover which according to syntax configuration
+are comments; new parser does not send these currently.)"
   :type 'boolean
   :group 'prover-config)
-
 
 (defcustom proof-script-integral-proofs nil
   "Whether the complete text after a goal confines the actual proof.
