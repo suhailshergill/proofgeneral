@@ -204,7 +204,8 @@ selected frame will be automatically deleted."
   :group 'proof-user-options)
 
 (defcustom proof-toolbar-use-button-enablers 
-  t
+  (or (not (boundp 'system-configuration))
+      (not (string-match "sun-solaris" system-configuration)))
   "*If non-nil, toolbars buttons may be enabled/disabled automatically.
 Toolbar buttons can be automatically enabled/disabled according to
 the context.  Set this variable to nil if you don't like this feature
@@ -215,7 +216,9 @@ Notes:
 * With this variable nil, buttons do nothing when they would
 otherwise be disabled.
 * If you change this variable it will only be noticed when you 
-next start Proof General."
+next start Proof General.
+* The default value for XEmacs built for solaris is nil, because
+of unreliabilities with enablers there."
   :type 'boolean
   :group 'proof-user-options)
 
@@ -606,7 +609,8 @@ Suggestion: this can be set a function called by `pre-shell-start-hook'."
   :type 'function
   :group 'prover-config)
 
-(defcustom proof-mode-for-goals 'proof-goals-mode
+;; FIXME: ought to be renamed to proof-mode-for-goals
+(defcustom proof-mode-for-pbp 'pbp-mode
   "Mode for proof state display buffers.
 Usually customised for specific prover.
 Suggestion: this can be set a function called by `pre-shell-start-hook'."
@@ -648,10 +652,8 @@ Used for Proof General's help menu."
   :group 'prover-config)
 
 (defcustom proof-info-command nil
-  "Command to ask for help or information in the proof assistant.
-String or fn.  If a string, the command to use. 
-If a function, it should return the command string to insert."
-  :type '(choice string function)
+  "Command to ask for help or information in the proof assistant."
+  :type 'string
   :group 'prover-config)
 
 (defcustom proof-showproof-command nil
@@ -676,8 +678,9 @@ If a function, it should return the command string to insert."
   :group 'prover-config)
 
 (defcustom proof-find-theorems-command nil
-  "Command to search for a theorem containing a given term. String or fn.
-If a string, the format character `%s' will be replaced by the term.
+  "Command to search for a theorem containing a given constant. String or fn.
+If a string, the format character `%s' will be replaced by the
+constant name.
 If a function, it should return the command string to insert."
   :type '(choice string function)
   :group 'prover-config)
@@ -1178,31 +1181,6 @@ script every time scripting begins."
   :type 'string
   :group 'proof-shell)
 
-(defcustom proof-shell-start-silent-cmd nil
-  "Command to turn prover goals output off when sending many script commands.
-If non-nil, Proof General will automatically issue this command
-to help speed up processing of long proof scripts.  
-See also proof-shell-stop-silent-cmd.
-NB: terminator not added to command."
-  :type '(choice string (const nil))
-  :group 'proof-shell)
-
-(defcustom proof-shell-stop-silent-cmd nil
-  "Command to turn prover output off.  
-If non-nil, Proof General will automatically issue this command
-to help speed up processing of long proof scripts.  
-See also proof-shell-start-silent-cmd.
-NB: Terminator not added to command."
-  :type '(choice string (const nil))
-  :group 'proof-shell)
-
-(defcustom proof-shell-silent-threshold 2
-  "Number of waiting commands in the proof queue needed to trigger silent mode.
-Default is 2, but you can raise this in case switching silent mode
-on or off is particularly expensive."
-  :type 'integer
-  :group 'proof-shell)
-
 (defcustom  proof-shell-inform-file-processed-cmd nil
  "Command to the proof assistant to tell it that a file has been processed.
 The format character `%s' is replaced by a complete filename for a
@@ -1262,6 +1240,33 @@ Proof General about the dependencies rather than using this setting."
   :type 'boolean
   :group 'proof-shell)
 
+(defcustom proof-shell-start-silent-cmd nil
+  "Command to turn prover goals output off when sending many script commands.
+If non-nil, Proof General will automatically issue this command
+to help speed up processing of long proof scripts.  
+See also proof-shell-stop-silent-cmd.
+NB: terminator not added to command.
+NOT IMPLEMENTED YET.  Forthcoming in Proof General 3.2."
+  :type '(choice string (const nil))
+  :group 'proof-shell)
+
+(defcustom proof-shell-stop-silent-cmd nil
+  "Command to turn prover output off.  
+If non-nil, Proof General will automatically issue this command
+to help speed up processing of long proof scripts.  
+See also proof-shell-start-silent-cmd.
+NB: Terminator not added to command.
+NOT IMPLEMENTED YET.  Forthcoming in Proof General 3.2."
+  :type '(choice string (const nil))
+  :group 'proof-shell)
+
+(defcustom proof-shell-silent-threshold 2
+  "Number of waiting commands in the proof queue needed to trigger silent mode.
+Default is 2, but you can raise this in case switching silent mode
+on or off is particularly expensive.
+NOT IMPLEMENTED YET.  Forthcoming in Proof General 3.2."
+  :type 'integer
+  :group 'proof-shell)
 
 
 
@@ -1341,14 +1346,11 @@ It is safe to leave this variable unset (as nil)."
 
 (defcustom proof-shell-proof-completed-regexp nil
   "Regexp matching output indicating a finished proof.
+Match number 1 should be the response text.
 
-When output which matches this regexp is seen, we clear the goals
-buffer in case this is not also marked up as a `goals' type of
-message.
-
-We also enable the QED function (save a proof) and will automatically
-close off the proof region if another goal appears before a save
-command."
+This is used to enable the QED function (save a proof) and
+to control what output appears in the response buffer at the
+end of a proof."
   :type '(choice nil regexp)
   :group 'proof-shell)
 
@@ -1492,9 +1494,7 @@ quote characters must be escaped.  The setting
     (\"\\\"\" . \"\\\\\\\"\"))
 achieves this.   This does not apply to LEGO, which does not
 need backslash escapes and does not allow filenames with
-quote characters.
-
-This setting is used inside the function `proof-format-filename'."
+quote characters."
   :type '(list (cons string string))
   :group 'proof-shell)
 
@@ -1564,7 +1564,7 @@ shell variables:
    proof-prog-name
    proof-mode-for-shell
    proof-mode-for-response
-   proof-mode-for-goals
+   proof-mode-for-pbp
 
 This is the bare minimum needed to get a shell buffer and
 its friends configured in the function proof-shell-start."
@@ -1712,6 +1712,23 @@ for parsing the is disabled."
 (defcustom proof-shell-field-char nil
   "Annotated field end"
   :type 'character
+  :group 'proof-goals)
+
+;; FIXME: remove this setting for 3.2, by matching on
+;; completed-regexp as an extra step, after errors/interrupt,
+;; but as well as ordinary output.
+(defcustom proof-goals-display-qed-message nil
+  "If non-nil, display the proof-completed message in the goals buffer.
+For some proof assistants (e.g. Isabelle) it seems aesthetic to
+display the QED message in the goals buffer, even though it doesn't
+contain any goals and shouldn't be marked up for proof-by-pointing.
+
+If this setting is non-nil, QED messages appear in the goals
+buffer.  Otherwise they appear in the response buffer.
+
+This is a hack specially for Isabelle.  DON'T USE IT.
+It will be removed in a future version of Proof General."
+  :type 'boolean
   :group 'proof-goals)
 
 (defcustom proof-goals-font-lock-keywords nil

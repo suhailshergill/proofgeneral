@@ -17,7 +17,7 @@
 @c http://zermelo.dcs.ed.ac.uk/~proofgen/ProofGeneralPortrait.eps.gz
 @c then put it into this directory and 'make dvi' (pdf,ps)
 @c will set the flag below automatically.
-@set haveeps
+@clear haveeps
 @iftex
 @afourpaper
 @end iftex
@@ -58,10 +58,10 @@
 @c        @ref{node}                without "see". Careful for info.
 
 
-@set version 3.2
+@set version 3.1
 @set xemacsversion 21.1
 @set fsfversion 20.5
-@set last-update April 2000
+@set last-update March 2000
 @set rcsid $Id$
 
 @ifinfo
@@ -105,7 +105,7 @@ END-INFO-DIR-ENTRY
 @c so we take it out for now.
 @c Ideally would like some way of generating eps from
 @c the .jpg file.   
-@image{ProofGeneralPortrait}
+@c image{ProofGeneralPortrait}
 @end ifset
 @end iftex
 @author David Aspinall with H. Goguen, T. Kleymann and D. Sequeira
@@ -195,25 +195,15 @@ other documentation, system downloads, etc.
 
 
 @menu
-* Latest news for 3.2::                     
-* News for 3.1::                     
+* Latest news for 3.1::                     
 * News for 3.0::                     
 * History::                     
 * Credits::                     
 @end menu
 
-@node Latest news for 3.2
-@unnumberedsec Latest news for 3.2
-@cindex news
 
-Proof General 3.2 has some new features and additional bug fixes over
-Proof General 3.1.  The new features include support for turning proof
-assistant output on and off internally, to improve efficiency when
-processing large scripts.
-
-
-@node News for 3.1
-@unnumberedsec News for 3.1
+@node Latest news for 3.1
+@unnumberedsec Latest news for 3.1
 @cindex news
 
 Proof General 3.1 is released as a bug-fix improvement over version 3.0.
@@ -2106,10 +2096,10 @@ this chapter are welcomed!
 @cindex file variables
 
 A very convenient way to customize file-specific variables is to use the
-File Variables (@inforef{File Variables, ,xemacs}). This feature of
-Emacs allows to specify the values to use for certain Emacs variables
-when a file is loaded. Those values are written as a list at the end of
-the file.
+File Variables.  (@inforef{File Variables, ,xemacs} for full
+details). This feature of Emacs allows to specify the values to use for
+certain Emacs variables when a file is loaded. Those values are written
+as a list at the end of the file.
 
 For example, in projects involving multiple directories, it is often
 useful to set the variables @code{proof-prog-name} and
@@ -2149,8 +2139,7 @@ command:
 And then the right call to make will be done if you use the @kbd{M-x
 compile} command. Notice that the lines are commented in order to be
 ignored by the proof assistant. It is possible to use this mechanism for
-any other buffer local variable. Read (@inforef{File Variables,
-,xemacs}.
+any other buffer local variable. 
 
 
 
@@ -2999,7 +2988,7 @@ notes on the special functions available and customization settings
 below.
 
 Note that in ``classic'' Isabelle, @file{.thy} files contain definitions
-and declarations for a theory, while @file{.ML} contain proof scripts.
+and declarations for a theory, while @file{.ML} files contain proof scripts.
 So most of Proof General's functions only make sense in @file{.ML}
 files, and there is no toolbar and only a short menu for @file{.thy}
 files.  
@@ -3057,9 +3046,10 @@ instead of this:
    end
 @end lisp
 In the second case, just the first binding in the structure body will be
-sent to Isabelle and Proof General will wait indefinitely.
+sent to Isabelle and Proof General will wait indefinitely 
+(use interrupt, @kbd{C-c C-c}, or the Stop button, to break out of this).
 
-And do this:
+As another example, do this:
 @lisp
     val intros1 = REPEAT (resolve_tac [impI,allI] 1);
     Goal "Q(x) --> (ALL x. P(x) --> P(x))";
@@ -3107,10 +3097,10 @@ especially for Proof General built into Isabelle99's theory loader.
 
 However, because scripting cannot begin until the theory is loaded, and
 it should not begin if an error occurs during loading the theory, Proof
-General @strong{blocks} waiting for the theory loader to finish.  If you
-have a theory file which takes a long time to load, you might want to
-load it directly, from the @file{.thy} buffer.  Extra commands are
-provided in theory mode for this:
+General @strong{blocks} waiting for the theory loader to finish.
+If you have a theory file which takes a long time to load, you might
+want to load it directly, from the @file{.thy} buffer.  Extra commands
+are provided in theory mode for this:
 
 @c FIXME: should say something about this:
 @c This can cause confusion in the theory loader later,
@@ -3247,9 +3237,25 @@ You can use the following format characters:
 HOL Proof General is a "technology demonstration" of Proof General for
 HOL98.  This means that only a basic instantiation has been provided,
 and that it is not yet supported as a maintained instantiation of Proof
-General.  Hopefully somebody from the HOL community is willing to adopt
-HOL Proof General and support and improve it.  Please volunteer!  It
-needn't be a large or heavy committment.
+General. 
+
+HOL Proof General has basic script management support, with a little bit
+of decoration of scripts and output.  It does not rely on a modified
+version of HOL, so the pattern matching may be fragile in certain cases,
+e.g. with extended syntax that looks like prompt patterns.  Support for
+multiple files deduces dependencies automatically, so there is no
+interaction with the HOL make system yet.
+
+See the @file{example.sml} file for a demonstration proof script
+which works with Proof General.
+
+Note that HOL proof scripts often use batch-oriented single step tactic
+proofs, but Proof General does not (yet) offer an easy way to edit these
+kind of proofs.  They will replay simply as a single step proof and you
+will need to convert from the interactive to batch form as usual if you
+wish to obtain batch proofs.  Also note that Proof General does not
+contain an SML parser, so there can be problems if you write complex ML
+in proof scripts. @xref{ML files}, for the same issue with Isabelle.
 
 HOL Proof General may work with variants of HOL other than HOL98, but is
 untested.  Probably a few of the settings would need to be changed in a
@@ -3257,21 +3263,9 @@ simple way, to cope with small differences in output between the
 systems.  (Please let us know if you modify the HOL98 version for
 another variant of HOL).
 
-HOL Proof General has basic script management support, with a little bit
-of decoration of scripts and output.  It does not rely on a modified
-version of HOL, so the pattern matching may be fragile in certain cases.
-Support for multiple files deduces dependencies automatically, so there
-is no interaction with the HOL make system yet.
-
-Note that HOL proof scripts often use batch-oriented single step tactic
-proofs, but Proof General does not (yet) offer an easy way to edit these
-kind of proofs.  They will replay simply as a single step proof and you
-will need to convert from the interactive to batch form as usual if you
-wish to obtain batch proofs.   Also note that Proof General does not
-contain an SML parser, so are problems if you write complex ML in
-proof scripts. @xref{ML files}, for the same issue with Isabelle.
-
-
+Hopefully somebody from the HOL community is willing to adopt HOL Proof
+General and support and improve it.  Please volunteer!  It needn't be a
+large or heavy committment.  
 
 
 
@@ -3467,7 +3461,7 @@ There are four major modes used by Proof General, one for each type of
 buffer it handles.  The buffer types are: script, shell, response and
 goals.  Each of these has a generic mode, respectively:
 @code{proof-mode}, @code{proof-shell-mode}, @code{proof-response-mode},
-and @code{proof-goals-mode}.
+and @code{proof-pbp-mode}.
 
 The pattern for defining the major mode for an instance of Proof General
 is to use @code{define-derived-mode} to define a specific mode to inherit from
@@ -3481,12 +3475,12 @@ each generic one, like this:
 Where @code{myass-shell-config} is a function which sets the
 configuration variables for the shell (@pxref{Proof shell settings}).
 
-It's important that your mode invokes one of the functions
+It's important that each of your modes invokes one of the functions
  @code{proof-config-done},
  @code{proof-shell-config-done}, 
  @code{proof-response-config-done}, or
  @code{proof-goals-config-done}
-once they've set their configuration variables.  These functions
+once it has set its configuration variables.  These functions
 finalize the configuration of the mode.
 
 For each mode, there is a configuration variable which names it so that
@@ -3520,8 +3514,8 @@ Mode for proof response buffer.@*
 Usually customised for specific prover.
 Suggestion: this can be set a function called by @samp{pre-shell-start-hook}.
 @end defvar
-@c TEXI DOCSTRING MAGIC: proof-mode-for-goals
-@defvar proof-mode-for-goals 
+@c TEXI DOCSTRING MAGIC: proof-mode-for-pbp
+@defvar proof-mode-for-pbp 
 Mode for proof state display buffers.@*
 Usually customised for specific prover.
 Suggestion: this can be set a function called by @samp{pre-shell-start-hook}.
@@ -3545,9 +3539,7 @@ Command to display the context in proof assistant.
 @end defvar
 @c TEXI DOCSTRING MAGIC: proof-info-command
 @defvar proof-info-command 
-Command to ask for help or information in the proof assistant.@*
-String or fn.  If a string, the command to use. 
-If a function, it should return the command string to insert.
+Command to ask for help or information in the proof assistant.
 @end defvar
 @c TEXI DOCSTRING MAGIC: proof-showproof-command
 @defvar proof-showproof-command 
@@ -3569,8 +3561,9 @@ If a function, it should return the command string to insert.
 @end defvar
 @c TEXI DOCSTRING MAGIC: proof-find-theorems-command
 @defvar proof-find-theorems-command 
-Command to search for a theorem containing a given term. String or fn.@*
-If a string, the format character @samp{%s} will be replaced by the term.
+Command to search for a theorem containing a given constant. String or fn.@*
+If a string, the format character @samp{%s} will be replaced by the
+constant name.
 If a function, it should return the command string to insert.
 @end defvar
 
@@ -3927,9 +3920,6 @@ all specific shell modes derived from it.
 @node Proof shell commands
 @subsection Commands
 
-Settings in this section configure Proof General with commands
-to send to the prover to activate certain actions.
-
 @c TEXI DOCSTRING MAGIC: proof-prog-name
 @defvar proof-prog-name 
 System command to run the proof assistant in the proof shell.@*
@@ -3984,30 +3974,6 @@ so that the prover switches to the directory of a proof
 script every time scripting begins.
 @end defvar
 
-@c TEXI DOCSTRING MAGIC: proof-shell-start-silent-cmd
-@defvar proof-shell-start-silent-cmd 
-Command to turn prover goals output off when sending many script commands.@*
-If non-nil, Proof General will automatically issue this command
-to help speed up processing of long proof scripts.  
-See also @code{proof-shell-stop-silent-cmd}.
-NB: terminator not added to command.
-@end defvar
-
-@c TEXI DOCSTRING MAGIC: proof-shell-stop-silent-cmd
-@defvar proof-shell-stop-silent-cmd 
-Command to turn prover output off.  @*
-If non-nil, Proof General will automatically issue this command
-to help speed up processing of long proof scripts.  
-See also @code{proof-shell-start-silent-cmd}.
-NB: Terminator not added to command.
-@end defvar
-
-@c TEXI DOCSTRING MAGIC: proof-shell-silent-threshold
-@defvar proof-shell-silent-threshold 
-Number of waiting commands in the proof queue needed to trigger silent mode.@*
-Default is 2, but you can raise this in case switching silent mode
-on or off is particularly expensive.
-@end defvar
 @xref{Handling multiple files},
 for more details about the final two settings in this group,
 
@@ -4121,15 +4087,12 @@ It is safe to leave this variable unset (as nil).
 @end defvar
 @c TEXI DOCSTRING MAGIC: proof-shell-proof-completed-regexp
 @defvar proof-shell-proof-completed-regexp 
-Regexp matching output indicating a finished proof.
+Regexp matching output indicating a finished proof.@*
+Match number 1 should be the response text.
 
-When output which matches this regexp is seen, we clear the goals
-buffer in case this is not also marked up as a @samp{goals} type of
-message.
-
-We also enable the QED function (save a proof) and will automatically
-close off the proof region if another goal appears before a save
-command.
+This is used to enable the QED function (save a proof) and
+to control what output appears in the response buffer at the
+end of a proof.
 @end defvar
 @c TEXI DOCSTRING MAGIC: proof-shell-clear-response-regexp
 @defvar proof-shell-clear-response-regexp 
@@ -4199,8 +4162,6 @@ quote characters must be escaped.  The setting
 achieves this.   This does not apply to @var{lego}, which does not
 need backslash escapes and does not allow filenames with
 quote characters.
-
-This setting is used inside the function @samp{@code{proof-format-filename}}.
 @end defvar
 
 @c TEXI DOCSTRING MAGIC: proof-shell-process-connection-type
@@ -4224,7 +4185,7 @@ shell variables:
    @code{proof-prog-name}
    @code{proof-mode-for-shell}
    @code{proof-mode-for-response}
-   @code{proof-mode-for-goals}
+   @code{proof-mode-for-pbp}
 @end lisp
 This is the bare minimum needed to get a shell buffer and
 its friends configured in the function @code{proof-shell-start}.
