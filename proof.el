@@ -1,6 +1,6 @@
-;; proof.el Major mode for proof assistants Copyright (C) 1994,
-;; 1995, 1996 LFCS Edinburgh. This version by Dilip Sequeira, by
-;; rearranging Thomas Schreiber's code.
+;; proof.el Major mode for proof assistants
+;; Copyright (C) 1994 - 1997 LFCS Edinburgh. 
+;; This version by Dilip Sequeira, by rearranging Thomas Schreiber's code.
 
 ;; Maintainer: LEGO Team <lego@dcs.ed.ac.uk>
 ;; Thanks to David Aspinall, Robert Boyer, Rod Burstall,
@@ -653,11 +653,14 @@
 	(proof-send (cadar a))
 	()))))
 
-(defun proof-shell-insert-loopback-cmd (cmd)
+(defun proof-shell-insert-loopback-cmd  (cmd)
+  "Insert command sequence triggered by the proof process
+at the end of locked region (after inserting a newline)."
   (save-excursion
     (set-buffer proof-shell-script-buffer)
     (let (start ext ls)
       (goto-char (setq start (proof-end-of-locked)))
+      (newline)
       (insert cmd)
       (setq ext (make-extent start (point)))
       (set-extent-property ext 'type 'pbp)
@@ -1127,7 +1130,7 @@ current command."
   (setq proof-shell-delayed-output (cons 'insert "done"))
   (setq comint-prompt-regexp proof-shell-prompt-pattern)
   (and running-emacs19 (setq comint-scroll-show-maximum-output t))
-  (add-hook 'comint-output-filter-functions 'proof-shell-filter t)
+  (add-hook 'comint-output-filter-functions 'proof-shell-filter nil t)
   (setq comint-append-old-input nil)
   (setq proof-mark-ext (make-extent nil nil (current-buffer)))
   (set-extent-property proof-mark-ext 'detachable nil)
