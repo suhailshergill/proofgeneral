@@ -24,6 +24,9 @@
 ;;   beginning of the module? 
 
 ;; $Log$
+;; Revision 1.10.2.14  1997/10/08 08:22:35  hhg
+;; Updated undo, fixed bugs, more modularization
+;;
 ;; Revision 1.10.2.13  1997/10/07 13:27:51  hhg
 ;; New structure sharing as much as possible between LEGO and Coq.
 ;;
@@ -95,6 +98,17 @@
 
 (deflocal proof-comment-start nil "Comment start")
 (deflocal proof-comment-end nil "Comment end")
+
+(deflocal proof-save-command-regexp nil "")
+(deflocal proof-save-with-hole-regexp nil "")
+(deflocal proof-goal-command-regexp nil "")
+(deflocal proof-goal-with-hole-regexp nil "")
+
+(deflocal proof-undo-target-fn nil "")
+(deflocal proof-forget-target-fn nil "")
+
+(deflocal proof-forget-id-command nil "")
+(deflocal proof-kill-goal-command nil "")
 
 ;; these should be set in proof-pre-shell-start-hook
 
@@ -519,11 +533,11 @@
 	(incf ip))
       (display-buffer (set-buffer proof-shell-pbp-buffer))
       (erase-buffer)
-      (insert (substring out 0 op))
-      (while (setq ip (car topl) 
-		   topl (cdr topl))
-	(pbp-make-top-extent ip (car topl)))
-      (pbp-make-top-extent ip (point-max)))))
+      (insert (substring out 0 op)))))
+;      (while (setq ip (car topl) 
+;		   topl (cdr topl))
+;	(pbp-make-top-extent ip (car topl)))
+;      (pbp-make-top-extent ip (point-max)))))
 
 (defun proof-shell-strip-annotations (string)
   (let* ((ip 0) (op 0) (l (length string)) (out (make-string l ?x )))
@@ -808,21 +822,20 @@ at the end of locked region (after inserting a newline)."
     (set-extent-endpoints proof-locked-ext 1 end)
     (set-extent-start proof-queue-ext end)
     (setq cmd (extent-property ext 'cmd))
-    (if (not (string-match "^Save"cmd))
+    (if (not (string-match proof-save-command-regexp cmd))
 	(set-extent-property ext 'highlight 'mouse-face)
-      (if (string-match 
-	   "\\(Save\\|SaveFrozen\\|SaveUnfrozen\\)\\s-+\\([^;]+\\)" cmd)
+      (if (string-match proof-save-with-hole-regexp cmd)
 	  (setq nam (match-string 2 cmd)))
       (setq gext ext)
       (while (progn (setq cmd (extent-property gext 'cmd))
-		    (not (string-match "^Goal" cmd)))
+		    (not (string-match proof-goal-command-regexp cmd)))
 	(setq next (extent-at (extent-start-position gext) nil 
 			      'type nil 'before))
 	(delete-extent gext)
 	(setq gext next))
       (if (null nam)
-	  (if (string-match "Goal\\s-+\\([^:]+\\)" cmd)
-	      (setq nam (match-string 1 cmd))
+	  (if (string-match proof-goal-with-hole-regexp cmd)
+	      (setq nam (match-string 2 cmd))
  	    (error "Oops... can't find Goal name!!!")))
       (set-extent-end gext end)
       (set-extent-property gext 'highlight 'mouse-face)
@@ -904,22 +917,48 @@ deletes the region corresponding to the proof sequence."
     (delete-extent ext)
     (and delete-region (delete-region start end))))
 
+(deflocal proof-undoable-commands-regexp nil "commands that can be undone")
 
-(defvar lego-undoable-commands-regexp
-  (ids-to-regexp '("Refine" "Intros" "intros" "Next" "Qrepl" "Claim"
-		   "For" "Repeat" "Succeed" "Fail" "Try" "Assumption" "UTac"
-		   "Qnify" "AndE" "AndI" "exE" "exI" "orIL" "orIR" "orE"
-		   "ImpI" "impE" "notI" "notE" "allI" "allE" "Expand"
-		   "Induction" "Immed"))
-  "Undoable list")
+(defun coq-count-undos (sext)
+  (let ((ct 0) str)
+    (while sext
+      (setq str (extent-property sext 'cmd))
+      (if (string-match proof-undoable-commands-regexp str)
+	  (setq ct (+ 1 ct)))
+      (setq sext (extent-at (extent-end-position sext) nil 'type nil 'after)))
+  (concat "Undo " (int-to-string ct) proof-terminal-string)))
 
-;; This is for proof-by-pointing
-(defun proof-count-undos (sext)
+(defun coq-find-and-forget (sext)
+  (let (str ans)
+    (while sext
+      (if (eq (extent-property sext 'type) 'goalsave)
+	  (setq ans (concat proof-forget-id-command
+			    (extent-property sext 'name) proof-terminal-string)
+		sext nil)
+	(setq str (extent-property sext 'cmd))
+	(cond
+
+	 ((string-match (concat "\\`\\("
+				(ids-to-regexp (append coq-keywords-decl
+						       coq-keywords-defn))
+				"\\)\\s-*\\(\\w+\\)\\s-*:") str)
+	  (setq ans (concat proof-forget-id-command
+			    (match-string 2 str) proof-terminal-string)
+		sext nil))
+
+	 (t 
+	  (setq sext 
+		(extent-at (extent-end-position sext) nil 'type nil 
+			   'after))))))
+    (or ans
+	(concat "echo \"Nothing more to Forget.\"" proof-terminal-string))))
+
+(defun lego-count-undos (sext)
   (let ((ct 0) str i)
     (while sext
       (setq str (extent-property sext 'cmd))
       (if (eq (extent-property sext 'type) 'vanilla)
-	(if (or (string-match lego-undoable-commands-regexp str)
+	(if (or (string-match proof-undoable-commands-regexp str)
 		(and (string-match "Equiv" str)
 		     (not (string-match "Equiv\\s +[TV]Reg" str))))
 	    (setq ct (+ 1 ct)))
@@ -930,31 +969,32 @@ deletes the region corresponding to the proof sequence."
       (setq sext (extent-at (extent-end-position sext) nil 'type nil 'after)))
   (concat "Undo " (int-to-string ct) proof-terminal-string)))
 
-;; `Forget' is `Reset' in Coq
-(defun proof-find-and-forget (sext) 
+(defun lego-find-and-forget (sext) 
   (let (str ans)
     (while sext
       (if (eq (extent-property sext 'type) 'goalsave)
-	  (setq ans (concat "Forget " (extent-property sext 'name) proof-terminal-string)
+	  (setq ans (concat proof-forget-id-command
+			    (extent-property sext 'name) proof-terminal-string)
 		sext nil)
 	(setq str (extent-property sext 'cmd))
 	(cond
 
 	 ;; matches e.g., "[a,b:T]"
-;; decl-defn-regexp doesn't exist for Coq!
 	 ((string-match (concat "\\`" (lego-decl-defn-regexp "[:|=]")) str)
 	  (let ((ids (match-string 1 str))) ; returns "a,b"
 	    (string-match proof-id ids)	; matches "a"
-	    (setq ans (concat "Forget " (match-string 1 ids)
+	    (setq ans (concat proof-forget-id-command (match-string 1 ids)
 			      proof-terminal-string)
 		  sext nil)))
 
 	 ((string-match "\\`\\(Inductive\\|\\Record\\)\\s-*\\[\\s-*\\w+\\s-*:[^;]+\\`Parameters\\\s-*\\[\\s-*\\(\\w+\\)\\s-*:" str)
-	  (setq ans (concat "Forget " (match-string 2 str) proof-terminal-string)
+	  (setq ans (concat proof-forget-id-command (match-string 2 str)
+			    proof-terminal-string)
 		sext nil))
 
 	 ((string-match "\\`\\(Inductive\\|Record\\)\\s-*\\[\\s-*\\(\\w+\\)\\s-*:" str)
-	  (setq ans (concat "Forget " (match-string 2 str) proof-terminal-string)
+	  (setq ans (concat proof-forget-id-command
+			    (match-string 2 str) proof-terminal-string)
 		sext nil))
 
 	 ((string-match "\\`\\s-*Module\\s-+\\(\\S-+\\)\\W" str)
@@ -970,7 +1010,7 @@ deletes the region corresponding to the proof sequence."
 (defun proof-retract-setup-actions (start end proof-command delete-region)
   (list (list (make-extent start end)
 	      proof-command
-	      `(lambda (ext) (proof-done-retracting ext, delete-region)))))
+	      `(lambda (ext) (proof-done-retracting ext ,delete-region)))))
 
 (defun proof-retract-until-point (&optional delete-region)
   "Sets up the proof process for retracting until point. In
@@ -990,29 +1030,34 @@ deletes the region corresponding to the proof sequence."
     (setq start (extent-start-position sext))
     
     (setq ext (extent-at end nil 'type nil 'before))
+
     (while (and ext (not done))		  
       (cond 
        ((eq (extent-property ext 'type) 'goalsave)
 	(setq done t))
-       ((string-match "^Goal" (extent-property ext 'cmd))
+       ((string-match proof-goal-command-regexp (extent-property ext 'cmd))
 	(setq done 'goal))
        (t
 	(setq ext (extent-at (extent-start-position ext) nil
 			     'type nil 'before)))))
+
     (if (eq done 'goal) 
 	(if (<= (extent-end-position ext) (point))
 	    (setq actions
 		  (proof-retract-setup-actions
-		   start end (proof-count-undos sext) delete-region)
+		   start end (funcall proof-undo-target-fn sext) delete-region)
 		  end start)
 	  (setq actions
 		(proof-retract-setup-actions (extent-start-position ext) end
-					     "KillRef;" delete-region)
+					     proof-kill-goal-command
+					     delete-region)
 		end (extent-start-position ext))))
+
     (if (> end start) 
 	(setq actions 
 	      (proof-retract-setup-actions start end
-					   (proof-find-and-forget sext)
+					   (funcall
+					    proof-forget-target-fn sext)
 					   delete-region)))
     (proof-start-queue (min start end)
 		       (extent-end-position proof-locked-ext)
@@ -1206,7 +1251,7 @@ current command."
 
 (defun proof-shell-config-done ()
   (accept-process-output (get-buffer-process (current-buffer)))
-  (proof-shell-insert proof-shell-init-cmd)
+;  (proof-shell-insert proof-shell-init-cmd)
   (while (extent-property proof-mark-ext 'detached)
     (if (accept-process-output (get-buffer-process (current-buffer)) 5)
 	()

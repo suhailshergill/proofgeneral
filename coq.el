@@ -3,6 +3,9 @@
 ;; Author: Healfdene Goguen and Thomas Kleymann
 
 ;; $Log$
+;; Revision 1.1.2.2  1997/10/08 08:22:30  hhg
+;; Updated undo, fixed bugs, more modularization
+;;
 ;; Revision 1.1.2.1  1997/10/07 13:34:16  hhg
 ;; New structure to share as much as possible between LEGO and Coq.
 ;;
@@ -277,11 +280,35 @@
 ;;   Configuring proof and pbp mode and setting up various utilities  ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defvar coq-save-command-regexp
+  (concat "^" (ids-to-regexp coq-keywords-save)))
+; The semicolon is incorrect here!
+(defvar coq-save-with-hole-regexp
+  (concat "\\(" (ids-to-regexp coq-keywords-save) "\\)\\s-+\\([^;]+\\)"))
+(defvar coq-goal-command-regexp
+  (concat "^" (ids-to-regexp coq-keywords-goal)))
+(defvar coq-goal-with-hole-regexp
+  (concat "\\(" (ids-to-regexp coq-keywords-goal) "\\)\\s-+\\([^:]+\\)"))
+
+(defvar coq-kill-goal-command "Abort.")
+(defvar coq-forget-id-command "Reset ")
+
 (defun coq-mode-config ()
 
   (setq proof-terminal-char ?\.)
   (setq proof-comment-start "(*")
   (setq proof-comment-end "*)")
+
+  (setq proof-undo-target-fn 'coq-count-undos)
+  (setq proof-forget-target-fn 'coq-find-and-forget)
+
+  (setq proof-save-command-regexp coq-save-command-regexp
+	proof-save-with-hole-regexp coq-save-with-hole-regexp
+	proof-goal-command-regexp coq-goal-command-regexp
+	proof-goal-with-hole-regexp coq-goal-with-hole-regexp
+	proof-undoable-commands-regexp (ids-to-regexp coq-tactics)
+	proof-kill-goal-command coq-kill-goal-command
+	proof-forget-id-command coq-forget-id-command)
 
   (modify-syntax-entry ?_ "_")
   (modify-syntax-entry ?\' "_")

@@ -4,6 +4,9 @@
 ;; Maintainer: LEGO Team <lego@dcs.ed.ac.uk>
 
 ;; $Log$
+;; Revision 1.1.2.2  1997/10/08 08:22:31  hhg
+;; Updated undo, fixed bugs, more modularization
+;;
 ;; Revision 1.1.2.1  1997/10/07 13:34:23  hhg
 ;; New structure to share as much as possible between LEGO and Coq.
 ;;
@@ -16,8 +19,7 @@
 
 (defvar lego-keywords-goal '("$?Goal"))
 
-(defvar lego-keywords-save
-  '("$?Save"))
+(defvar lego-keywords-save '("$?Save" "SaveFrozen" "SaveUnfrozen"))
 
 (defvar lego-keywords
   (append lego-keywords-goal lego-keywords-save

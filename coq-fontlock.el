@@ -4,6 +4,9 @@
 ;; Maintainer: LEGO Team <lego@dcs.ed.ac.uk>
 
 ;; $Log$
+;; Revision 1.1.2.2  1997/10/08 08:22:28  hhg
+;; Updated undo, fixed bugs, more modularization
+;;
 ;; Revision 1.1.2.1  1997/10/07 13:34:10  hhg
 ;; New structure to share as much as possible between LEGO and Coq.
 ;;
@@ -43,6 +46,10 @@
 "Qed"
 ))
 
+(defvar coq-keywords-kill-goal '(
+"Abort"
+))
+
 (defvar coq-keywords-commands
   '(
 "AddPath"
@@ -62,10 +69,8 @@
 "Transparent"
 ))
 
-(defvar coq-keywords
-  (append coq-keywords-goal coq-keywords-save coq-keywords-decl
-  coq-keywords-defn coq-keywords-commands
-	  '(
+(defvar coq-tactics
+  '(
 "Absurd"
 "Apply"
 "Assumption"
@@ -110,6 +115,10 @@
 "Trivial"
 "Unfold"
 ))
+
+(defvar coq-keywords
+  (append coq-keywords-goal coq-keywords-save coq-keywords-decl
+	  coq-keywords-defn coq-keywords-commands coq-tactics)
   "All keywords in a Coq script")
 
 (defvar coq-tacticals '(

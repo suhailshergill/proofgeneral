@@ -4,6 +4,9 @@
 ;; Maintainer: LEGO Team <lego@dcs.ed.ac.uk>
 
 ;; $Log$
+;; Revision 1.20.2.7  1997/10/08 08:22:33  hhg
+;; Updated undo, fixed bugs, more modularization
+;;
 ;; Revision 1.20.2.6  1997/10/07 13:26:05  hhg
 ;; New structure sharing as much as possible between LEGO and Coq.
 ;;
@@ -281,11 +284,42 @@
 ;;   Configuring proof and pbp mode and setting up various utilities  ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defvar lego-save-command-regexp
+  (concat "^" (ids-to-regexp lego-keywords-save)))
+(defvar lego-save-with-hole-regexp
+  (concat "\\(" (ids-to-regexp lego-keywords-save) "\\)\\s-+\\([^;]+\\)"))
+(defvar lego-goal-command-regexp
+  (concat "^" (ids-to-regexp lego-keywords-goal)))
+(defvar lego-goal-with-hole-regexp
+  (concat "\\(" (ids-to-regexp lego-keywords-goal) "\\)\\s-+\\([^:]+\\)"))
+
+(defvar lego-kill-goal-command "KillRef;")
+(defvar lego-forget-id-command "Forget ")
+
+(defvar lego-undoable-commands-regexp
+  (ids-to-regexp '("Refine" "Intros" "intros" "Next" "Qrepl" "Claim"
+		   "For" "Repeat" "Succeed" "Fail" "Try" "Assumption" "UTac"
+		   "Qnify" "AndE" "AndI" "exE" "exI" "orIL" "orIR" "orE"
+		   "ImpI" "impE" "notI" "notE" "allI" "allE" "Expand"
+		   "Induction" "Immed"))
+  "Undoable list")
+
 (defun lego-mode-config ()
 
   (setq proof-terminal-char ?\;)
   (setq proof-comment-start "(*")
   (setq proof-comment-end "*)")
+
+  (setq proof-undo-target-fn 'lego-count-undos)
+  (setq proof-forget-target-fn 'lego-find-and-forget)
+
+  (setq	proof-save-command-regexp lego-save-command-regexp
+	proof-save-with-hole-regexp lego-save-with-hole-regexp
+	proof-goal-command-regexp lego-goal-command-regexp
+	proof-goal-with-hole-regexp lego-goal-with-hole-regexp
+	proof-undoable-commands-regexp lego-undoable-commands-regexp
+	proof-kill-goal-command lego-kill-goal-command
+	proof-forget-id-command lego-forget-id-command)
 
   (modify-syntax-entry ?_ "_")
   (modify-syntax-entry ?\' "_")
@@ -359,18 +393,18 @@
         proof-shell-assumption-regexp lego-id
         proof-shell-goal-regexp lego-goal-regexp
         proof-shell-first-special-char ?\360
-        proof-shell-wakeup-char "\371"
+        proof-shell-wakeup-char ?\371
         proof-shell-start-char ?\372
         proof-shell-end-char ?\373
         proof-shell-field-char ?\374
         proof-shell-goal-char ?\375
 	proof-shell-eager-annotation-start "\376"
 	proof-shell-eager-annotation-end "\377"
-        proof-shell-annotated-prompt-string "Lego> \371"
+        proof-shell-annotated-prompt-regexp "Lego> \371"
         proof-shell-result-start "\372 Pbp result \373"
         proof-shell-result-end "\372 End Pbp result \373"
-        proof-shell-start-goals-string "\372 Start of Goals \373"
-        proof-shell-end-goals-string "\372 End of Goals \373"
+        proof-shell-start-goals-regexp "\372 Start of Goals \373"
+        proof-shell-end-goals-regexp "\372 End of Goals \373"
         proof-shell-init-cmd lego-process-config
         proof-shell-config 'lego-shell-adjust-line-width
         lego-shell-current-line-width nil)
