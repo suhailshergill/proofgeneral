@@ -20,8 +20,13 @@
 ;;   phase. We need better support for multiple modules
 ;; o proof-undo-last-successful-command needs to be extended so that
 ;;   it deletes regions of the script buffer when invoked outside a proof 
+;; o undo support needs to consider Discharge; perhaps unrol to the
+;;   beginning of the module? 
 
 ;; $Log$
+;; Revision 1.10.2.10  1997/09/12 12:33:41  tms
+;; improved lego-find-and-forget
+;;
 ;; Revision 1.10.2.9  1997/09/11 15:39:19  tms
 ;; fixed a bug in proof-retract-until-point
 ;;
@@ -915,18 +920,18 @@ deletes the region corresponding to the proof sequence."
 	(cond
 
 	 ;; matches e.g., "[a,b:T]"
-	 ((string-match (lego-decl-defn-regexp "[:=]") str)
+	 ((string-match (concat "\\`" (lego-decl-defn-regexp "[:|=]")) str)
 	  (let ((ids (match-string 1 str))) ; returns "a,b"
 	    (string-match lego-id ids)	; matches "a"
 	    (setq ans (concat "Forget " (match-string 1 ids) ";")
 		  sext nil)))
 
-	 ((string-match "\\`Inductive\\s-*\\[\\s-*\\w+\\s-*:[^;]+\\`Parameters\\\s-*\\[\\s-*\\(\\w+\\)\\s-*:" str)
-	  (setq ans (concat "Forget " (match-string 1 str) ";")
+	 ((string-match "\\`\\(Inductive\\|\\Record\\)\\s-*\\[\\s-*\\w+\\s-*:[^;]+\\`Parameters\\\s-*\\[\\s-*\\(\\w+\\)\\s-*:" str)
+	  (setq ans (concat "Forget " (match-string 2 str) ";")
 		sext nil))
 
-	 ((string-match "\\`Inductive\\s-*\\[\\s-*\\(\\w+\\)\\s-*:" str)
-	  (setq ans (concat "Forget " (match-string 1 str) ";")
+	 ((string-match "\\`\\(Inductive\\|Record\\)\\s-*\\[\\s-*\\(\\w+\\)\\s-*:" str)
+	  (setq ans (concat "Forget " (match-string 2 str) ";")
 		sext nil))
 
 	 ((string-match "\\`\\s-*Module\\s-+\\(\\S-+\\)\\W" str)
@@ -1179,8 +1184,6 @@ current command."
 
 
 ;; keymap
-
-;; proof-mode-map is initialised above by (define-derived-mode proof-mode ...
 
   (define-key proof-mode-map
     (vconcat [(control c)] (vector proof-terminal-char))
