@@ -1,6 +1,6 @@
 ;; proof.el Major mode for proof assistants
 ;; Copyright (C) 1994 - 1997 LFCS Edinburgh. 
-;; This version by Dilip Sequeira, by rearranging Thomas Schreiber's code.
+;; Authors: Yves Bertot, Thomas Kleymann and Dilip Sequeira
 
 ;; Maintainer: LEGO Team <lego@dcs.ed.ac.uk>
 ;; Thanks to David Aspinall, Robert Boyer, Rod Burstall,
@@ -908,9 +908,13 @@ deletes the region corresponding to the proof sequence."
 		sext nil)
 	(setq str (extent-property sext 'cmd))
 	(cond
-	 ((string-match "\\`\\s-*\\[\\s-*\\(\\w+\\)\\s-*[:=]" str)
-	  (setq ans (concat "Forget " (match-string 1 str) ";")
-		sext nil))
+
+	 ;; matches e.g., "[a,b:T]"
+	 ((string-match (lego-decl-defn-regexp "[:=]") str)
+	  (let ((ids (match-string 1 str))) ; returns "a,b"
+	    (string-match lego-id ids)	; matches "a"
+	    (setq ans (concat "Forget " (match-string 1 ids) ";")
+		  sext nil)))
 
 	 ((string-match "\\`Inductive\\s-*\\[\\s-*\\w+\\s-*:[^;]+\\`Parameters\\\s-*\\[\\s-*\\(\\w+\\)\\s-*:" str)
 	  (setq ans (concat "Forget " (match-string 1 str) ";")
@@ -1171,6 +1175,8 @@ current command."
 
 ;; keymap
 
+;; proof-mode-map is initialised above by (define-derived-mode proof-mode ...
+
   (define-key proof-mode-map
     (vconcat [(control c)] (vector proof-terminal-char))
     'proof-active-terminator-minor-mode)
@@ -1208,6 +1214,7 @@ current command."
 (define-derived-mode pbp-mode fundamental-mode 
   (setq proof-buffer-type 'pbp)
   "Proof" "Proof by Pointing"
+  ;; defined-derived-mode pbp-mode initialises pbp-mode-map
   (suppress-keymap pbp-mode-map)
   (erase-buffer))
 
