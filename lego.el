@@ -4,13 +4,14 @@
 ;; code.
 
 ;; Maintainer: LEGO Team <lego@dcs.ed.ac.uk>
-;; Time-stamp: <05 Dec 96 tms /home/tms/elisp/lego.el>
+;; Time-stamp: <19 Jun 97 tms /home/tms/emacs/xemacs/lego/elisp/lego.el>
 ;; Thanks to David Aspinall, Robert Boyer, Rod Burstall,
 ;;           James McKinna, Mark Ruys, Martin Steffen, Perdita Stevens  
 
 (require 'easymenu)
 (require 'font-lock)
 (require 'outline)
+(require 'proof)
 
 ; Configuration                                  
 
