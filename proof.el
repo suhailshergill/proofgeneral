@@ -24,6 +24,19 @@
 ;;   beginning of the module? 
 
 ;; $Log$
+;; Revision 1.10.2.12  1997/10/03 14:52:53  tms
+;; o Replaced (string= "str" (substring cmd 0 n))
+;;         by (string-match "^str" cmd)
+;;   The latter doesn't raise an exception if cmd is too short
+;;
+;; o proof-segment-up-to: changed 5000 to 50000
+;;   This should be more flexible!
+;;
+;; o updated lego-undoable-commands-regexp
+;;
+;; o lego-count-undos: now depends on lego-undoable-commands-regexp
+;;                     with special treatment of Equiv
+;;
 ;; Revision 1.10.2.11  1997/09/19 11:23:23  tms
 ;; o replaced ?\; by proof-terminal-char
 ;; o fixed a bug in proof-process-active-terminator
@@ -591,7 +604,7 @@
       (setq end (- (match-beginning 0) 1))
       (cons 'loopback (substring string start end))))
    
-   ((and (>= (length cmd) 6) (string= "Module" (substring cmd 0 6)))
+   ((string-match "^Module" cmd)
     (setq proof-shell-delayed-output (cons 'insert "Imports done!")))
 
    (t (setq proof-shell-delayed-output (cons 'insert string)))))
@@ -796,14 +809,14 @@ at the end of locked region (after inserting a newline)."
     (set-extent-endpoints proof-locked-ext 1 end)
     (set-extent-start proof-queue-ext end)
     (setq cmd (extent-property ext 'cmd))
-    (if (or (< (length cmd) 4) (not (string= "Save" (substring cmd 0 4))))
+    (if (not (string-match "^Save"cmd))
 	(set-extent-property ext 'highlight 'mouse-face)
       (if (string-match 
 	   "\\(Save\\|SaveFrozen\\|SaveUnfrozen\\)\\s-+\\([^;]+\\)" cmd)
 	  (setq nam (match-string 2 cmd)))
       (setq gext ext)
       (while (progn (setq cmd (extent-property gext 'cmd))
-		    (not (string= "Goal" (substring cmd 0 4))))
+		    (not (string-match "^Goal" cmd)))
 	(setq next (extent-at (extent-start-position gext) nil 
 			      'type nil 'before))
 	(delete-extent gext)
@@ -826,7 +839,7 @@ at the end of locked region (after inserting a newline)."
 
 (defun proof-segment-up-to (pos)
   (save-excursion
-    (let ((str (make-string 5000 ?x)) 
+    (let ((str (make-string 50000 ?x)) 
 	  (i 0) (depth 0) done alist c)
      (proof-goto-end-of-locked)
       (while (not done)
@@ -893,19 +906,22 @@ deletes the region corresponding to the proof sequence."
     (and delete-region (delete-region start end))))
 
 
-(deflocal lego-undoable-commands-regexp
-  (ids-to-regexp '("Refine" "Intros" "intros" "Next" "Qrepl" "Claim" "Equiv"
+(defvar lego-undoable-commands-regexp
+  (ids-to-regexp '("Refine" "Intros" "intros" "Next" "Qrepl" "Claim"
 		   "For" "Repeat" "Succeed" "Fail" "Try" "Assumption" "UTac"
 		   "Qnify" "AndE" "AndI" "exE" "exI" "orIL" "orIR" "orE"
-		   "ImpI" "impE" "notI" "notE" "allI" "allE")) "Undoable list")
+		   "ImpI" "impE" "notI" "notE" "allI" "allE" "Expand"
+		   "Induction" "Immed"))
+  "Undoable list")
 
 (defun lego-count-undos (sext)
   (let ((ct 0) str i)
     (while sext
       (setq str (extent-property sext 'cmd))
       (if (eq (extent-property sext 'type) 'vanilla)
-	(if (string-match
-	     "Refine\\|Intros\\|intros\\|Next\\|Qrepl\\|Claim\\|Equiv\\|For\\|Repeat\\|Succeed\\|Fail\\|Try\\|" str)
+	(if (or (string-match lego-undoable-commands-regexp str)
+		(and (string-match "Equiv" str)
+		     (not (string-match "Equiv\\s +[TV]Reg" str))))
 	    (setq ct (+ 1 ct)))
 	(setq i 0)
 	(while (< i (length str)) 
@@ -927,7 +943,8 @@ deletes the region corresponding to the proof sequence."
 	 ((string-match (concat "\\`" (lego-decl-defn-regexp "[:|=]")) str)
 	  (let ((ids (match-string 1 str))) ; returns "a,b"
 	    (string-match lego-id ids)	; matches "a"
-	    (setq ans (concat "Forget " (match-string 1 ids) proof-terminal-string)
+	    (setq ans (concat "Forget " (match-string 1 ids)
+			      proof-terminal-string)
 		  sext nil)))
 
 	 ((string-match "\\`\\(Inductive\\|\\Record\\)\\s-*\\[\\s-*\\w+\\s-*:[^;]+\\`Parameters\\\s-*\\[\\s-*\\(\\w+\\)\\s-*:" str)
@@ -975,7 +992,7 @@ proof script corresponding to the proof command sequence."
       (cond 
        ((eq (extent-property ext 'type) 'goalsave)
 	(setq done t))
-       ((string= (substring (extent-property ext 'cmd) 0 4) "Goal")
+       ((string-match "^Goal" (extent-property ext 'cmd))
 	(setq done 'goal))
        (t
 	(setq ext (extent-at (extent-start-position ext) nil
@@ -1207,8 +1224,9 @@ current command."
   (setq proof-shell-sanitise t)
   (setq proof-shell-delayed-output (cons 'insert "done"))
   (setq comint-prompt-regexp proof-shell-prompt-pattern)
-  (and running-emacs19 (setq comint-scroll-show-maximum-output t))
   (add-hook 'comint-output-filter-functions 'proof-shell-filter nil t)
+;  (add-hook 'comint-output-filter-functions 'comint-truncate-buffer nil t)
+;  (setq comint-buffer-maximum-size 10000)
   (setq comint-append-old-input nil)
   (setq proof-mark-ext (make-extent nil nil (current-buffer)))
   (set-extent-property proof-mark-ext 'detachable nil)
