@@ -3,6 +3,10 @@
 ;; Author: Healfdene Goguen and Thomas Kleymann
 
 ;; $Log$
+;; Revision 1.1.2.3  1997/10/10 19:19:58  djs
+;; Added multiple file support, changed the way comments work, fixed a
+;; few minor bugs, and merged in coq support by hhg.
+;;
 ;; Revision 1.1.2.2  1997/10/08 08:22:30  hhg
 ;; Updated undo, fixed bugs, more modularization
 ;;
@@ -25,7 +29,7 @@
 (defvar coq-tags "/usr/local/share/coq/lib-alpha/lib_all/TAGS"
   "the default TAGS table for the Coq library")
 
-(defconst coq-process-config "Print and."
+(defconst coq-process-config nil
   "Command to configure pretty printing of the Coq process for emacs.")
 
 ;; This doesn't exist at the moment
@@ -126,6 +130,21 @@
 (defvar coq-shell-outline-regexp coq-goal-regexp)
 (defvar coq-shell-outline-heading-end-regexp coq-goal-regexp)
 
+(defvar coq-save-command-regexp
+  (concat "^" (ids-to-regexp coq-keywords-save)))
+; The semicolon is incorrect here!
+(defvar coq-save-with-hole-regexp
+  (concat "\\(" (ids-to-regexp coq-keywords-save) "\\)\\s-+\\([^;]+\\)"))
+(defvar coq-goal-command-regexp
+  (concat "^" (ids-to-regexp coq-keywords-goal)))
+(defvar coq-goal-with-hole-regexp
+  (concat "\\(" (ids-to-regexp coq-keywords-goal) "\\)\\s-+\\([^:]+\\)"))
+
+(defvar coq-kill-goal-command "Abort.")
+(defvar coq-forget-id-command "Reset ")
+
+(defvar coq-undoable-commands-regexp (ids-to-regexp coq-tactics))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;   Derived modes - they're here 'cos they define keymaps 'n stuff ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -214,6 +233,44 @@
            (setq path-name ".")))       
     (string-to-list path-name coq-path-separator)))
 
+(defun coq-count-undos (sext)
+  (let ((ct 0) str)
+    (while sext
+      (setq str (extent-property sext 'cmd))
+      (if (string-match coq-undoable-commands-regexp str)
+	  (setq ct (+ 1 ct)))
+      (setq sext (extent-at (extent-end-position sext) nil 'type nil 'after)))
+  (concat "Undo " (int-to-string ct) proof-terminal-string)))
+
+(defconst coq-keywords-decl-defn-regexp
+  (ids-to-regexp (append coq-keywords-decl coq-keywords-defn))
+  "Declaration and definition regexp.")
+
+
+(defun coq-find-and-forget (sext)
+  (let (str ans)
+    (while sext
+      (if (eq (extent-property sext 'type) 'goalsave)
+	  (setq ans (concat coq-forget-id-command
+			    (extent-property sext 'name) proof-terminal-string)
+		sext nil)
+	(setq str (extent-property sext 'cmd))
+	(cond
+
+	 ((string-match (concat "\\`\\(" coq-keywords-decl-defn-regexp
+				"\\)\\s-*\\(\\w+\\)\\s-*:") str)
+	  (setq ans (concat coq-forget-id-command
+			    (match-string 2 str) proof-terminal-string)
+		sext nil))
+
+	 (t 
+	  (setq sext 
+		(extent-at (extent-end-position sext) nil 'type nil 
+			   'after))))))
+; I don't know what the equivalent of "echo" is in Coq -- hhg
+    (or ans
+	(concat "echo \"Nothing more to Forget.\"" proof-terminal-string))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;   Commands specific to coq                                      ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -263,7 +320,7 @@
   the output."
   (if (proof-shell-live-buffer)
       (let ((current-width
-	     (window-width (get-buffer-window proof-buffer-for-shell))))
+	     (window-width (get-buffer-window proof-shell-buffer))))
 	 (if (equal current-width coq-shell-current-line-width)
 	     ""
 	   (setq coq-shell-current-line-width current-width)
@@ -280,18 +337,6 @@
 ;;   Configuring proof and pbp mode and setting up various utilities  ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defvar coq-save-command-regexp
-  (concat "^" (ids-to-regexp coq-keywords-save)))
-; The semicolon is incorrect here!
-(defvar coq-save-with-hole-regexp
-  (concat "\\(" (ids-to-regexp coq-keywords-save) "\\)\\s-+\\([^;]+\\)"))
-(defvar coq-goal-command-regexp
-  (concat "^" (ids-to-regexp coq-keywords-goal)))
-(defvar coq-goal-with-hole-regexp
-  (concat "\\(" (ids-to-regexp coq-keywords-goal) "\\)\\s-+\\([^:]+\\)"))
-
-(defvar coq-kill-goal-command "Abort.")
-(defvar coq-forget-id-command "Reset ")
 
 (defun coq-mode-config ()
 
@@ -306,9 +351,7 @@
 	proof-save-with-hole-regexp coq-save-with-hole-regexp
 	proof-goal-command-regexp coq-goal-command-regexp
 	proof-goal-with-hole-regexp coq-goal-with-hole-regexp
-	proof-undoable-commands-regexp (ids-to-regexp coq-tactics)
-	proof-kill-goal-command coq-kill-goal-command
-	proof-forget-id-command coq-forget-id-command)
+	proof-kill-goal-command coq-kill-goal-command)
 
   (modify-syntax-entry ?_ "_")
   (modify-syntax-entry ?\' "_")
@@ -391,7 +434,7 @@
 		(char-to-string proof-shell-wakeup-char)) ; done
         proof-shell-result-start "\372 Pbp result \373"
         proof-shell-result-end "\372 End Pbp result \373"
-        proof-shell-start-goals-regexp "[0-9]+ subgoal"
+        proof-shell-start-goals-regexp "[0-9]+ subgoal[s]"
         proof-shell-end-goals-regexp proof-shell-annotated-prompt-regexp
         proof-shell-init-cmd coq-process-config
         proof-shell-config 'coq-shell-adjust-line-width
