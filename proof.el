@@ -9,9 +9,17 @@
 
 ;; TO DO:
 
-;; Make lego code buffer local
-;; Need to think about fixing up errors caused by pbp-generated commands
-;; comments should be replaced by single spaces unless at start of line
+;; o Make lego code buffer local
+;; o Need to think about fixing up errors caused by pbp-generated commands
+;; o Comments should be replaced by single spaces unless at start of line
+;; o Error is not signaled if an import fails
+;; o Comments need to be treated as separate proof commands, for
+;;   otherwise undoing a proof command may lead to a comment
+;;   accidently being removed.
+;; o Proof mode breaks if an error is encounterred during the import
+;;   phase. We need better support for multiple modules
+;; o proof-undo-last-successful-command needs to be extended so that
+;;   it deletes regions of the script buffer when invoked outside a proof 
 
 (require 'compile)
 (require 'comint)
@@ -800,6 +808,8 @@ at the end of locked region (after inserting a newline)."
 ; terminator. Return 'comment consed on the front if we're inside a
 ; comment
 
+; Remark tms: It would be better to have comments as separate 
+
 (defun proof-segment-up-to (pos)
   (save-excursion
     (let ((str (make-string 5000 ?x)) 
@@ -856,13 +866,18 @@ at the end of locked region (after inserting a newline)."
     (proof-start-queue (proof-end-of-locked) (point)
 		       (proof-semis-to-vanillas semis))))
     
-(defun proof-done-retracting (ext)
+(defun proof-done-retracting (ext &optional delete-region)
+  "Updates display after proof process has reset its state. See also
+the documentation for `proof-retract-until-point'. It optionally
+deletes the region corresponding to the proof sequence."
   (let ((start (extent-start-position ext))
         (end (extent-end-position ext)))
     (set-extent-end proof-locked-ext start)
     (set-extent-end proof-queue-ext start)
     (mapcar-extents 'delete-extent nil (current-buffer) start end  nil 'type)
-    (delete-extent ext)))
+    (delete-extent ext)
+    (and delete-region (delete-region start end))))
+
 
 (deflocal lego-undoable-commands-regexp
   (ids-to-regexp '("Refine" "Intros" "intros" "Next" "Qrepl" "Claim" "Equiv"
@@ -914,7 +929,17 @@ at the end of locked region (after inserting a newline)."
 			   'after))))))
     (or ans "echo \"Nothing more to Forget.\";")))
 
-(defun proof-retract-until-point ()
+(defun proof-retract-setup-actions (start end proof-command delete-region)
+  (list (list (make-extent start end)
+	      proof-command
+	      `(lambda (ext) (proof-done-retracting ext ,delete-region)))))
+
+(defun proof-retract-until-point (&optional delete-region)
+  "Sets up the proof process for retracting until point. In
+particular, it sets a flag for the filter process to call
+`proof-done-retracting' after the proof process has actually
+successfully reset its state. It optionally deletes the region in the
+proof script corresponding to the proof command sequence."
   (interactive)
   (proof-check-process-available)
   (if (not (eq proof-buffer-type 'script))
@@ -938,22 +963,41 @@ at the end of locked region (after inserting a newline)."
 			     'type nil 'before)))))
     (if (eq done 'goal) 
 	(if (< (extent-end-position ext) (point))
-	    (setq actions (list (list (make-extent start end)
-				      (lego-count-undos sext)
-				      'proof-done-retracting))
+	    (setq actions
+		  (proof-retract-setup-actions
+		   start end (lego-count-undos sext) delete-region)
 		  end start)
-	  (setq actions (list (list (make-extent (extent-start-position ext) 
-						 end)
-				    "KillRef;" 'proof-done-retracting))
+	  (setq actions
+		(proof-retract-setup-actions (extent-start-position ext) end
+					     "KillRef;" delete-region)
 		end (extent-start-position ext))))
     (if (> end start) 
-	(setq actions (append actions (list 
-				       (list (make-extent start end) 
-					     (lego-find-and-forget sext)
-					     'proof-done-retracting)))))
+	(setq actions 
+	      (proof-retract-setup-actions start end
+					   (lego-find-and-forget sext)
+					   delete-region)))
     (proof-start-queue (min start end)
 		       (extent-end-position proof-locked-ext)
 		       actions)))
+
+(defun proof-undo-last-successful-command  ()
+  "Undo last successful command, both in the buffer recording the
+  proof script and in the proof process. In particular, it deletes the
+corresponding part of the proof script."
+  (interactive)
+  (let* ((eol (proof-end-of-locked))
+    ; this is inefficient because it searches for the last extent by
+    ; beginning at the start of the buffer. Is there a better way?
+	(start-of-prev-cmd
+	 (extent-start-position 
+	  (last-element (mapcar-extents (lambda (e) e) nil nil
+					(point-min) eol nil 'cmd)))))
+
+   
+    (goto-char start-of-prev-cmd) 
+    (proof-retract-until-point t)))
+
+
 
 (defun proof-restart-script ()
   (interactive)
@@ -1134,10 +1178,9 @@ current command."
   (define-key proof-mode-map proof-terminal-char 'proof-active-terminator)
   (define-key proof-mode-map "\C-ca"    'proof-assert-until-point)
   (define-key proof-mode-map "\C-cu"    'proof-retract-until-point)
+  (define-key proof-mode-map [(control c) (control u)] 'proof-undo-last-successful-command)
   (define-key proof-mode-map [(control c) ?']
-  'proof-goto-end-of-locked)
-
-
+  'proof-goto-end-of-locked))
 
 (define-derived-mode proof-shell-mode comint-mode 
   "proof-shell" "Proof shell mode - not standalone"
