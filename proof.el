@@ -3,10 +3,15 @@
 ;; rearranging Thomas Schreiber's code.
 
 ;; Maintainer: LEGO Team <lego@dcs.ed.ac.uk>
-;; Time-stamp: <22 Nov 96 tms /home/tms/elisp/proof.el>
 ;; Thanks to David Aspinall, Robert Boyer, Rod Burstall,
 ;;           James McKinna, Mark Ruys, Martin Steffen, Perdita Stevens  
 
+
+;; TO DO:
+
+;; Lego "does" declarations up to error, so need to fixup these properly.
+;; Make lego code buffer local
+;; Fill in the other kinds of defn in find-and-forget
 
 (require 'compile)
 (require 'comint)
@@ -15,67 +20,144 @@
 (autoload 'w3-fetch "w3" nil t)
 (autoload 'easy-menu-define "easymenu")
 
+(defmacro deflocal (var value docstring)
+ (list 'progn
+   (list 'defvar var 'nil docstring)
+   (list 'make-variable-buffer-local (list 'quote var))
+   (list 'setq var value)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;               Configuration                                      ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defvar proof-shell-echo-input t
+; Essentially everything is buffer local, so that we could run multiple
+; shells, each with a goals buffer and multiple associated text buffers
+; Variable naming convention is that everything which starts with 
+; pbp is for the goals buffer, everything which starts proof-shell
+; is in the shell buffer, and everything else is in script buffers
+
+(deflocal proof-shell-echo-input t
   "If nil, input to the proof shell will not be echoed")
 
-(defvar proof-prog-name-ask-p nil
+(deflocal proof-prog-name-ask-p nil
   "*If t, you will be asked which program to run when the inferior
  process starts up.")
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  Variables used by proof mode, all auto-buffer-local             ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(deflocal pbp-change-goal nil
+  "*Command to change to the goal %s")
 
-(defmacro deflocal (var &optional value docstring)
- (list 'make-variable-buffer-local (list 'quote var))
- (list 'defvar var value docstring))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Other buffer-local variables used by proof mode                 ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; These should be set before proof-config-done is called
 
-(deflocal proof-terminal-char)
+(deflocal proof-terminal-char nil "terminator character")
 
-(make-local-hook 'proof-pre-shell-start-hook)
-(make-local-hook 'proof-post-shell-start-hook)
+(deflocal proof-comment-start nil "Comment start")
+(deflocal proof-comment-end nil "Comment end")
 
-(deflocal proof-comment-start)
-(deflocal proof-comment-end)
+;; these should be set in proof-pre-shell-start-hook
 
-;; these should be set in proof-shell-start-hook
+(deflocal proof-prog-name nil "program name for proof shell")
+(deflocal proof-mode-for-shell nil "mode for proof shell")
+(deflocal proof-mode-for-pbp nil "The actual mode for Proof-by-Pointing.")
+(deflocal proof-shell-config nil 
+  "Function to config proof-system to interface")
 
-(deflocal proof-shell-prog-name)
-(deflocal proof-shell-process-name)
-(deflocal proof-shell-buffer-name)
-(deflocal proof-shell-prompt-pattern)
-(deflocal proof-shell-mode-is)
+(defvar proof-pre-shell-start-hook)
+(defvar proof-post-shell-exit-hook)
+
+(deflocal proof-shell-prompt-pattern nil 
+   "comint-prompt-pattern for proof shell")
+
+(deflocal proof-shell-init-cmd nil
+   "The command for initially configuring the proof process")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Generic config for script management                            ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(deflocal proof-shell-wakeup-character "\t"
+  "A character terminating the prompt in annotation mode")
+
+(deflocal proof-shell-annotated-prompt-string "Lego> \t"
+  "Annotated prompt pattern")
 
 (deflocal proof-shell-abort-goal-regexp nil
   "*Regular expression indicating that the proof of the current goal
   has been abandoned.")
 
-(deflocal proof-error-regexp nil
+(deflocal proof-shell-error-regexp nil
   "A regular expression indicating that the PROOF process has
   identified an error.") 
 
 (deflocal proof-shell-proof-completed-regexp nil
   "*Regular expression indicating that the proof has been completed.")
 
-(deflocal proof-shell-change-goal nil
-  "*Command to change to the goal %s")
+(deflocal proof-shell-result-start nil
+  "String indicating the start of an output from the prover following
+  a `pbp-goal-command' or a `pbp-hyp-command'.")
 
-;; Supply these if you want
+(deflocal proof-shell-result-end nil
+  "String indicating the end of an output from the prover following a
+  `pbp-goal-command' or a `pbp-hyp-command'.") 
 
-(make-local-hook 'proof-shell-safe-send-hook)
-(make-local-hook 'proof-shell-exit-hook)
+(deflocal proof-shell-start-goals-string "@s Start of Goals @e"
+  "String indicating the start of the proof state.")
 
-;; These get computed in proof-mode-child-config-done
+(deflocal proof-shell-end-goals-string "@s End of Goals @e"
+  "String indicating the end of the proof state.")
 
-(deflocal proof-terminal-string)
-(deflocal proof-re-end-of-cmd) 
-(deflocal proof-re-term-or-comment)
+(deflocal proof-shell-sanitise t "sanitise output?")
+
+(deflocal pbp-error-regexp nil
+  "A regular expression indicating that the PROOF process has
+  identified an error.") 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Internal variables used by scripting and pbp                    ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(deflocal proof-terminal-string nil 
+  "You are not authorised for this information.")
+
+(deflocal proof-re-end-of-cmd nil 
+  "You are not authorised for this information.")
+
+(deflocal proof-re-term-or-comment nil 
+  "You are not authorised for this information.")
+
+(deflocal proof-locked-ext nil
+  "You are not authorised for this information.")
+
+(deflocal proof-queue-ext nil
+  "You are not authorised for this information.")
+
+(deflocal proof-mark-ext nil 
+  "You are not authorised for this information.")
+
+(deflocal proof-buffer-for-shell nil
+  "You are not authorised for this information.")
+
+(deflocal proof-shell-script-buffer nil
+  "You are not authorised for this information.")
+
+(deflocal proof-shell-pbp-buffer nil
+  "You are not authorised for this information.")
+
+(deflocal pbp-shell-buffer nil
+  "You are not authorised for this information.")
+
+(deflocal pbp-script-buffer nil
+  "You are not authorised for this information.")
+
+(deflocal proof-shell-busy nil 
+  "You are not authorised for this information.")
+
+(deflocal proof-buffer-type nil 
+  "You are not authorised for this information.")
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;               Bridging the emacs19/xemacs gulf                   ;;
@@ -142,8 +224,6 @@
                         (string-match (concat "[^" separator "]")
                                       s end-of-word-occurence)) separator)))))
 
-
-
 (defun ids-to-regexp (l)
   "transforms a non-empty list of identifiers `l' into a regular
   expression matching any of its elements"
@@ -155,251 +235,695 @@
   (concat (substring address 0 (match-end 0))
           (file-name-directory (substring address (match-end 0)))))
 
-(defun occurence (STRING &optional LOWER-BOUND UPPER-BOUND)
-  "Counts the number of occurences of STRING in the current buffer
-   between the positions LOWER-BOUND and UPPER-BOUND.
-   Optional first argument. nil is equivalent to (point-min).
-   Optional second argument. nil is equivalent to (point-max)."
-  (save-excursion
-    (let ((LOWER-BOUND (or LOWER-BOUND (point-min))))
-      (goto-char LOWER-BOUND)
-      (let ((pos (search-forward STRING UPPER-BOUND t)))
-	(if pos (+ 1 (occurence STRING pos UPPER-BOUND)) 0)))))
+(defun set-queue-prop (property value)
+  (set-extent-property proof-queue-ext property value))
+
+(defun get-queue-prop (property)
+  (extent-property proof-queue-ext property))
+
+(defun set-locked-prop (property value)
+  (set-extent-property proof-locked-ext property value))
+
+(defun get-locked-prop (property)
+  (extent-property proof-locked-ext property))
+
+(defun set-extent-start (extent value)
+  (set-extent-endpoints extent value (extent-end-position extent)))
+
+(defun set-extent-end (extent value)
+  (set-extent-endpoints extent (extent-start-position extent) value))
+
+(defmacro pbp-shell-val (var)
+  (list 'save-excursion (list 'set-buffer 'pbp-shell-buffer)
+	                var))
+
+(defun proof-end-of-locked ()
+  (or (extent-end-position proof-locked-ext) (point-min)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;          A few random hacks                                      ;;
+;;  Starting and stopping the lego shell                            ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun proof-skip-comments ()
-  (forward-comment (buffer-size))
-  (point))
-
-; Find the last real semicolon, or point-min, leaving the point after
-; the semi and any junk.  Returns nil if we seemto be inside a comment
-
-(defun proof-find-start-of-command ()
-   (if (re-search-backward proof-re-term-or-comment nil t)
-       (cond ((looking-at proof-terminal-string) 
-              (forward-char)
-	      (proof-skip-comments))
-	     ((looking-at (substring proof-comment-start 0 1)) nil)
-	     ((looking-at (substring proof-comment-end 0 1))
-	      (if (search-backward proof-comment-start nil t)
-		  (if (equal (point) (point-min)) 
-		      (proof-skip-comments))
-		    (backward-char)
-		    (proof-find-start-of-command))
-		(point)))
-     (goto-char (point-min))
-     (proof-skip-comments)))
-
-
-;; there seems to be some duplication of work here, as one might
-;; expect that the functionality of proof-find-end-of-command would be
-;; required in proof-process-active-terminator
-(defun proof-find-end-of-command (&optional COUNT)
-  "Move to the end of the command. COUNT-1 end-of-command symbols
-  `proof-terminal-string' are within comments"
-  (interactive)
-  (let ((point (point))
-	(pos   (search-forward proof-terminal-string nil nil COUNT)))
-    (and pos
- 	;; an end of command has been found
-	;; is pos within a comment relative to the starting point of
-	;; the search?
-	 (> (occurence proof-comment-start point (point))
-	    (occurence proof-comment-end   point (point)))
-	 (goto-char point)
-	 (proof-find-end-of-command (if COUNT (+ 1 COUNT) 2)))))
-
-(defun proof-shell-process ()
-  (and (stringp proof-shell-process-name)
-       (get-process proof-shell-process-name)))
-
-(defun proof-shell-buffer () 
-  (and (stringp proof-shell-buffer-name)
-       (get-buffer proof-shell-buffer-name)))
-
-(defun proof-display-buffer (buffer)
-  (let ((tmp-buffer (current-buffer)))
-    (display-buffer buffer)
-    (display-buffer tmp-buffer)))
-
-(defun proof-append-terminator (string)
-  (or (and
-       (string-match proof-re-end-of-cmd string)
-       string)
-      (setq string (concat string proof-terminal-string))))
-        
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;          Comint-style stuff: sending input to the process etc    ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defun proof-input-sender (proc string)
-  "Function to actually send to the PROOF process `proc' the `string'
-  submitted by the user. It then calls proof-shell-safe-send-hook if safe 
-  to do so."
-  (comint-simple-send proc string)
-  (and (string-match proof-re-end-of-cmd string)
-       (run-hooks 'proof-shell-safe-send-hook)))
-
-(defun proof-interrupt-subjob ()
-  (interactive)
-  (and (proof-shell-process)
-       (interrupt-process (proof-shell-process))))
-
-(defun proof-simple-send (string &optional silent)
-   "send `string' to the PROOF PROCESS.
-    If `silent' is enabled then `string' should not be echoed."
-  (or (proof-shell-process) (proof-start-shell))
-  (let ((proof-buf (proof-shell-buffer)))
-    (if proof-buf
-	(save-excursion
-	  (progn
-	    (set-buffer proof-buf)
-	    (goto-char (point-max))
-	    (if (and proof-shell-echo-input (not silent))
-		(progn
-		  (princ string proof-buf)
-		  (comint-send-input))
-	      (proof-input-sender proof-shell-process-name string)
-	      )))
-      (message (format "No active %s process" proof-shell-process-name)))))
-
-(defun proof-simulate-send-region (point1 point2 &optional terminator)
-  "Send the area between point1 and point2 to the inferior shell running lego."
-  (let (str)
-    (setq str (buffer-substring point1 point2))
-    (and terminator (setq str (proof-append-terminator str)))
-    (proof-simple-send str)))
-
-;; proof-send-command tries to figure out where commands start and end
-;; without having to parse expressions. Actually needs re-writing.
-
-(defun proof-send-command ()
-  "Send current command to inferior shell."  
-
-  (interactive)
-  (let (start end)
-    (save-excursion
-      (setq start (proof-find-start-of-command))
-      (if start
-	  (setq end (search-forward proof-terminal-string nil t)))
-      (if (not end)
-	  (setq end (point-max))
-	(backward-char))
-      (proof-simulate-send-region start end t))))
-
-(defun proof-send-line ()
-  "Send current line to inferior shell running proof"
-  (interactive)
-  (save-excursion
-    (let (start end)
-      (beginning-of-line 1)
-      (setq start (point))
-      (end-of-line 1)
-      (setq end (point))
-      (proof-simulate-send-region start end)))
-  (forward-line 1))
-  
-(defun proof-send-region ()
-  "Sends the current region to the inferior shell running proof and
-  appends a terminator if neccessary."
-  (interactive)
-  (let (start end)
-    (save-excursion
-      (setq end (point))
-      (exchange-point-and-mark)
-      (setq start (point)))
-    (proof-simulate-send-region start end t)))
-
-(defun proof-command (command &optional silent)
-  (let ((str (proof-append-terminator command)))
-  (proof-simple-send str silent)))
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  Starting, stopping, and interrupting the lego shell             ;;
-;;  There maybe more functionality here one day to support multiple ;;
-;;  subprocesses                                                    ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defun proof-shell-live-buffer () 
+  (if (and proof-buffer-for-shell
+	   (comint-check-proc proof-buffer-for-shell))
+       proof-buffer-for-shell))
 
 (defun proof-start-shell ()
-  (run-hooks 'proof-pre-shell-start-hook)
-  (let ((proof-buf (and proof-shell-process-name (proof-shell-buffer))))
-    (if (comint-check-proc proof-buf)
-        ()
-      (save-excursion
-        (and proof-prog-name-ask-p
-             (setq proof-shell-prog-name
-                   (read-shell-command "Run process: "
-                                       proof-shell-prog-name))))
-      (or proof-shell-process-name
-          (setq proof-shell-process-name
-                (concat
-                 "Inferior "
-                 (substring proof-shell-prog-name
-                            (string-match "[^/]*$" proof-shell-prog-name)
-                            (string-match "$" proof-shell-prog-name)))))
-      (message (format "Starting %s process..." proof-shell-process-name))
-      
-      (proof-spawn-process proof-shell-prog-name 
-			 proof-shell-process-name proof-shell-buffer-name)
-      (run-hooks 'proof-post-shell-start-hook)
-      (pbp-goals-init)
+  (if (proof-shell-live-buffer)
+      ()
+    (run-hooks 'proof-pre-shell-start-hook)
+    (if proof-prog-name-ask-p
+	(save-excursion
+	  (setq proof-prog-name (read-shell-command "Run process: "
+						    proof-prog-name))))
+    (let ((proc
+	   (concat "Inferior "
+		   (substring proof-prog-name
+			      (string-match "[^/]*$" proof-prog-name)))))
+      (while (get-buffer (concat "*" proc "*"))
+	(if (string= (substring proc -1) ">")
+	    (aset proc (- (length proc) 2) 
+		  (+ 1 (aref proc (- (length proc) 2))))
+	  (setq proc (concat proc "<2>"))))
+
+      (message (format "Starting %s process..." proc))
+
+      (let ((prog-name-list (string-to-list proof-prog-name " ")))
+	(apply 'make-comint  (append (list proc (car prog-name-list) nil)
+				     (cdr prog-name-list))))
+
+      (setq proof-buffer-for-shell (get-buffer (concat "*" proc "*")))
+
+      (let ((shell-mode proof-mode-for-shell) 
+            (pbp-mode proof-mode-for-pbp)
+	    (shellbuf proof-buffer-for-shell)
+	    (scriptbuf (current-buffer)))
+	(save-excursion
+	  (set-buffer shellbuf)
+	  (setq proof-shell-script-buffer scriptbuf)
+	  (setq proof-shell-pbp-buffer 
+		(get-buffer-create (concat "*" proc "-goals*")))
+	  (put 'proof-shell-script-buffer 'permanent-local t) 
+	  (put 'proof-shell-pbp-buffer 'permanent-local t)
+	  (funcall shell-mode)
+	  (set-buffer proof-shell-pbp-buffer)
+	  (funcall pbp-mode)
+	  (setq pbp-shell-buffer shellbuf)
+	  (setq pbp-script-buffer scriptbuf)))
+
       (message 
-       (format "Starting %s process... done." proof-shell-process-name)))))
+       (format "Starting %s process... done." proc)))))
   
 
-(defun proof-spawn-process (prog-name process-name buffer-name)
-  "Start a new shell in a new buffer"
-
-  (set-buffer
-   (let ((prog-name-list (string-to-list prog-name " ")))
-     (apply 'make-comint 
-	    (append (list process-name 
-			  (car prog-name-list) nil)
-		    (cdr prog-name-list)))))
-
-  (erase-buffer)
-  (funcall proof-shell-mode-is)
-  (setq comint-prompt-regexp proof-shell-prompt-pattern)
-  (setq comint-input-sender 'proof-input-sender)
-  (and running-emacs19 (setq comint-scroll-show-maximum-output t))
-  (proof-display-buffer buffer-name)
-  (set-buffer buffer-name)
-  )
-
-(defun proof-shell-exit ()
+(defun proof-stop-shell ()
   "Exit the PROOF process
 
   Runs proof-shell-exit-hook if non nil"
 
   (interactive)
   (save-excursion
-    (let ((buffer (proof-shell-buffer)))
-      (and buffer
-	   (progn
-	     (save-excursion
-	       (set-buffer buffer)
-	       (comint-send-eof))
-	     (kill-buffer buffer)
-	     
-	     (run-hooks 'proof-shell-exit-hook)
+    (let ((buffer (proof-shell-live-buffer)) (proc))
+      (if buffer
+	  (progn
+	    (save-excursion
+	      (set-buffer buffer)
+	      (setq proc (process-name (get-buffer-process)))
+	      (comint-send-eof)
+	      (save-excursion
+		(set-buffer proof-shell-script-buffer)
+		(detach-extent proof-queue-ext))
+	      (kill-buffer))
+	    (run-hooks 'proof-shell-exit-hook)
 
              ;;it is important that the hooks are
 	     ;;run after the buffer has been killed. In the reverse
 	     ;;order e.g., intall-shell-fonts causes problems and it
 	     ;;is impossilbe to restart the PROOF shell
 
-	     (message 
-	      (format "%s process terminated." proof-shell-process-name)))))))
+	    (message (format "%s process terminated." proc)))))))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;          Proof by pointing                                       ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defconst pbp-goal-command "Pbp %s;"
+  "Command informing the prover that `pbp-button-action' has been
+  requested on a goal.")
+
+
+(defconst pbp-hyp-command "PbpHyp %s;"
+  "Command informing the prover that `pbp-button-action' has been
+  requested on an assumption.")
+
+(defvar pbp-keymap (make-keymap 'Pbp-keymap) 
+  "Keymap for proof mode")
+
+(defun pbp-button-action (event)
+   (interactive "e")
+   (mouse-set-point event)
+   (pbp-construct-command))
+
+(define-key pbp-keymap 'button2 'pbp-button-action)
+
+; Using the extents in a mouse behavior is quite simple: from the
+; mouse position, find the relevant extent, then get its annotation
+; and produce a piece of text that will be inserted in the right
+; buffer.  Attaching this behavior to the mouse is simply done by
+; attaching a keymap to all the extents.
+
+(defun pbp-construct-command ()
+  (save-excursion
+   (let ((ext (extent-at (point) () 'proof))
+         (top-ext (extent-at (point) () 'proof-top-element)))
+
+      (cond ((and (extentp top-ext) (extentp ext))
+	     (let* ((top-info (extent-property top-ext 'proof-top-element))
+		   (path
+		    (concat (cdr top-info) " " (extent-property ext 'proof))))
+	       (set-buffer pbp-script-buffer)
+	       (proof-invisible-command
+		(if (eq 'hyp (car top-info))
+		    (format pbp-hyp-command path)
+		  (format pbp-goal-command  path)))))
+
+	     ((extentp top-ext)
+	      (let ((top-info (extent-property top-ext 'proof-top-element)))
+		(save-excursion
+		  (set-buffer pbp-script-buffer)		    
+		  (if (eq 'hyp (car top-info))
+		      (proof-invisible-command 
+		       (format pbp-hyp-command (cdr top-info)))
+		    (proof-insert-pbp-command 
+		     (format pbp-change-goal (cdr top-info)))))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;          Turning annotated output into pbp goal set              ;;
+;;          All very lego-specific at present                       ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defconst proof-shell-annotation-char ?@ "Annotation Mark")
+(defconst proof-shell-goal-char ?g "goal mark")
+(defconst proof-shell-start-char ?s "annotation start")
+(defconst proof-shell-end-char ?e "annotation end")
+(defconst proof-shell-field-char ?x "annotated field end")
+
+(defconst proof-shell-assumption-regexp nil
+  "A regular expression matching the name of assumptions.")
+
+(defconst proof-shell-goal-regexp nil
+  "A regular expressin matching the identifier of a goal.")
+
+(defconst proof-shell-noise-regexp nil
+  "Unwanted information output from the proof process within
+  `proof-start-goals-string' and `proof-end-goals-string'.")
+
+(defun pbp-make-top-extent (start end)
+  (let (extent name)
+    (goto-char start)
+    (setq name (cond 
+		((looking-at proof-shell-goal-regexp)
+		 (cons 'goal (match-string 1)))
+		((looking-at proof-shell-assumption-regexp)
+		 (cons 'hyp (match-string 1)))))
+    (beginning-of-line)
+    (setq start (point))
+    (goto-char end)
+    (beginning-of-line)
+    (backward-char)
+    (setq extent (make-extent start (point)))
+    (set-extent-property extent 'mouse-face 'highlight)
+    (set-extent-property extent 'keymap pbp-keymap)
+    (set-extent-property extent 'proof-top-element name)))
+
+(defun proof-shell-analyse-structure (string)
+  (save-excursion
+    (let* ((ip 0) (op 0) (l (length string)) (stack ()) (topl ()) ext n
+	   (out (make-string l ?x )) )
+      (while (< ip l)
+	(if (not (char-equal (aref string ip) proof-shell-annotation-char))
+	    (progn (aset out op (aref string ip))
+		   (setq op (+ 1 op)))
+	  (setq ip (+ 1 ip))
+	  (cond 
+	   ((char-equal (aref string ip) proof-shell-goal-char)
+	    (setq topl (append topl (list (+ 1 op)) )))
+	   ((char-equal (aref string ip) proof-shell-start-char)
+	    (setq n (setq ip (+ 1 ip)))
+	    (while (not (char-equal (aref string ip) 
+				    proof-shell-annotation-char))
+	      (setq ip (+ 1 ip)))
+	    (setq stack (cons op (cons (substring string n ip) stack)))
+	    (setq ip (+ 1 ip)))
+	   ((char-equal (aref string ip) proof-shell-field-char)
+	    (setq ext (make-extent (car stack) op out))
+	    (set-extent-property ext 'mouse-face 'highlight)
+	    (set-extent-property ext 'keymap pbp-keymap)
+	    (set-extent-property ext 'proof (cadr stack))
+	    (set-extent-property ext 'duplicable t)
+	    (setq stack (cddr stack)))))
+	(setq ip (+ 1 ip)))
+      (display-buffer (set-buffer proof-shell-pbp-buffer))
+      (erase-buffer)
+      (insert (substring out 0 op))
+      (while (setq ip (car topl) 
+		   topl (cdr topl))
+	(pbp-make-top-extent ip (car topl)))
+      (pbp-make-top-extent ip (point-max)))))
+
+(defun proof-shell-strip-annotations (string)
+  (let* ((ip 0) (op 0) (l (length string)) (out (make-string l ?x )))
+    (while (< ip l)
+      (if (char-equal (aref string ip) proof-shell-annotation-char)
+	  (if (char-equal (aref string (setq ip (+ 1 ip))) 
+			  proof-shell-start-char)
+	      (progn
+		(while (not (char-equal (aref string ip) 
+					proof-shell-annotation-char))
+		  (setq ip (+ 1 ip)))
+		(setq ip (+ 1 ip))))
+	(aset out op (aref string ip))
+	(setq op (+ 1 op)))
+      (setq ip (+ 1 ip)))
+    (substring out 0 op)))
+
+(defun proof-shell-handle-error (cmd string)
+  (save-excursion 
+    (display-buffer (set-buffer proof-shell-pbp-buffer))
+    (goto-char (point-max))
+    (if (re-search-backward pbp-error-regexp nil t) 
+	(delete-region (- (point) 2) (point-max)))
+    (newline 2)
+    (insert-string string)
+    (beep))
+  (set-buffer proof-shell-script-buffer)
+  (detach-extent proof-queue-ext)
+  (mapcar-extents 'delete-extent nil (current-buffer) 
+		  (proof-end-of-locked) (point-max) nil 'type)
+  (proof-release-process))
+
+(deflocal proof-shell-delayed-output nil
+  "The last interesting output the proof process output, and what to do
+   with it.")
+
+(defun proof-shell-handle-delayed-output ()
+  (let ((ins (car proof-shell-delayed-output))
+	(str (cdr proof-shell-delayed-output)))
+    (display-buffer proof-shell-pbp-buffer)
+    (save-excursion
+      (cond 
+       ((eq ins 'insert)
+	(setq str (proof-shell-strip-annotations str))
+	(set-buffer proof-shell-pbp-buffer)
+	(insert str))
+       ((eq ins 'analyse)
+	(proof-shell-analyse-structure str))
+       (t (set-buffer proof-shell-pbp-buffer)
+	  (insert "\n\nbug???")))))
+  (setq proof-shell-delayed-output (cons 'insert "done")))
+
+
+(defun proof-shell-process-output (cmd string)
+  (cond 
+   ((string-match proof-shell-error-regexp string)
+    (cons 'error (proof-shell-strip-annotations string)))
+
+   ((string-match proof-shell-abort-goal-regexp string)
+    (setq proof-shell-delayed-output (cons 'insert "\n\nAborted"))
+    ())
+	 
+   ((string-match proof-shell-proof-completed-regexp string)
+    (setq proof-shell-delayed-output
+	  (cons 'insert (concat "\n" (match-string 0 string)))))
+
+   ((string-match proof-shell-start-goals-string string)
+    (let (start end)
+      (while (progn (setq start (match-end 0))
+		    (string-match proof-shell-start-goals-string 
+				  string start)))
+      (string-match proof-shell-end-goals-string string start)
+      (setq proof-shell-delayed-output 
+	    (cons 'analyse (substring string start end)))))
+       
+   ((string-match proof-shell-result-start string)
+    (let (start end)
+      (setq start (+ 1 (match-end 0)))
+      (string-match proof-shell-result-end string)
+      (setq end (- (match-beginning 0) 1))
+      (cons 'loopback (substring string start end))))
+   
+   ((and (>= (length cmd) 6) (string= "Module" (substring cmd 0 6)))
+    (setq proof-shell-delayed-output (cons 'insert "Imports done!")))
+
+   (t (setq proof-shell-delayed-output (cons 'insert string)))))
+         
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;   Low-level commands for shell communication                     ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun proof-shell-insert (string)
+  (goto-char (point-max))
+  (insert (funcall proof-shell-config) string)
+  (comint-send-input))
+
+(defun proof-send (string)
+  (save-excursion
+    (set-buffer proof-buffer-for-shell)
+    (proof-shell-insert string)))
+
+;; grab the process and return t, otherwise return nil. Note that this
+;; is not really intended for anything complicated - just to stop the
+;; user accidentally sending a command while the queue is running.
+
+(defun proof-check-process-available ()
+  (save-excursion
+    (if (proof-shell-live-buffer)
+	(progn (set-buffer proof-buffer-for-shell)
+	       (if proof-shell-busy (error "Proof Process Busy!"))))))
+
+(defun proof-grab-process ()
+  (save-excursion
+    (proof-start-shell)
+    (let ((buf (current-buffer)))
+      (set-buffer proof-buffer-for-shell)
+      (if proof-shell-busy	       
+	  (error "proof process busy")
+	(if (not (eq proof-shell-script-buffer buf))
+	    (error "Bug: Don't own process") 
+	  (setq proof-shell-busy t)
+	  t)))))
+
+(defun proof-release-process ()
+  (if (proof-shell-live-buffer)
+      (save-excursion
+	(let ((buf (current-buffer)))
+	  (set-buffer proof-buffer-for-shell)
+	  (if (not proof-shell-busy)
+	      (error "Bug: Proof process not busy")
+	    (if (not (eq proof-shell-script-buffer buf)) 
+		(error "Bug: Don't own process")
+	      (setq proof-shell-busy nil)))))))
+
+(defun proof-start-queue (start end alist &optional obj)
+  (proof-grab-process) ; TODO: catch error and delete extents in queue
+  (save-excursion
+    (set-buffer proof-buffer-for-shell)
+    (erase-buffer proof-shell-pbp-buffer))
+  (setq proof-shell-delayed-output (cons 'insert "Done."))
+  (if (null obj) (setq obj (current-buffer)))
+  (set-extent-endpoints proof-queue-ext start end obj)
+  (set-queue-prop 'action-list alist)
+  (proof-send (cadar alist)))
+
+; returns t if it's run out of input
+
+(defun proof-shell-exec-loop ()
+  (save-excursion
+    (set-buffer proof-shell-script-buffer)
+    (let* ((a (get-queue-prop 'action-list))
+	   (ext (caar a))
+	   (act (caddar a)))
+      (if (null act) (error "BUG2"))
+      (funcall act ext)
+      (setq a (cdr a))
+      (set-queue-prop 'action-list a)
+      (if (null a)
+	  (progn (proof-release-process)
+		 (detach-extent proof-queue-ext)
+		 t)
+	(proof-send (cadar a))
+	()))))
+
+(defun proof-shell-insert-loopback-cmd (cmd)
+  (save-excursion
+    (set-buffer proof-shell-script-buffer)
+    (let (start ext ls)
+      (goto-char (setq start (proof-end-of-locked)))
+      (insert cmd)
+      (setq ext (make-extent start (point)))
+      (set-extent-property ext 'type 'pbp)
+      (set-extent-property ext 'cmd cmd)
+      (setq ls (get-queue-prop 'action-list))
+      (set-extent-endpoints proof-queue-ext start (point) (current-buffer))
+      (set-queue-prop 'action-list 
+		      (cons (car ls) 
+			    (cons (list ext cmd 'proof-done-advancing)
+				  (cdr ls)))))))
+
+(defun proof-shell-filter (str) 
+  (if (string-match proof-shell-wakeup-character str)
+      (if (extent-property proof-mark-ext 'detached)
+	  (progn
+	    (goto-char (point-min))
+	    (search-forward proof-shell-annotated-prompt-string)
+	    (set-extent-endpoints proof-mark-ext (point) (point))
+	    (backward-delete-char 1))
+	(let (string mrk res cmd)	
+	    (goto-char (setq mrk (extent-start-position proof-mark-ext)))
+	    (search-forward proof-shell-annotated-prompt-string nil t)
+	    (set-extent-endpoints proof-mark-ext (point) (point))
+	    (backward-char (length proof-shell-annotated-prompt-string))
+	    (setq string (buffer-substring mrk (point)))
+	    (if proof-shell-sanitise 
+		(progn
+		  (delete-region mrk (point))
+		  (insert (proof-shell-strip-annotations string))))
+	    (goto-char (extent-start-position proof-mark-ext))
+	    (backward-delete-char 1)
+	    (save-excursion
+	      (set-buffer proof-shell-script-buffer)
+	      (setq cmd (cadar (get-queue-prop 'action-list))))
+	    (save-excursion
+	      (setq res (proof-shell-process-output cmd string))
+	      (cond
+	       ((and (consp res) (eq (car res) 'error))
+		(proof-shell-handle-error cmd (cdr res)))
+	       ((and (consp res) (eq (car res) 'loopback))
+		(proof-shell-insert-loopback-cmd (cdr res))
+		(proof-shell-exec-loop))
+	       (t (if (proof-shell-exec-loop)
+		      (proof-shell-handle-delayed-output)))))))))
+	    
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;          Script management                                     ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	
+; Script management uses two major extents: Locked, which marks text
+; which has been sent to the proof assistant and cannot be altered
+; without being retracted, and Queue, which contains stuff being
+; queued for processing.  Queue has a property 'action-list' which
+; contains a list of (extent,command,action) triples. The loop looks
+; like: Execute the command, and if it's successful, do action on
+; extent.  If the command's not successful, we bounce the rest of the
+; queue and do some error processing.
+;
+; 'goalsave - denoting a 'goalsave pair in the locked region
+;    a 'goalsave region has a 'name property which is the name of the goal
+; 'pbp - denoting an extent created by pbp
+; 'vanilla - denoting any other extent.
+;   'pbp & 'vanilla extents have a property 'cmd, which says what lego
+;   command they contain. 
+
+; We don't allow commands while the queue has anything in it.  So we
+; do configuration by concatenating the config command on the front in
+; proof-send
+
+(defun proof-done-invisible (ext) ())
+
+(defun proof-invisible-command (cmd)
+  (proof-check-process-available)
+  (if (not (string-match proof-re-end-of-cmd cmd))
+      (setq cmd (concat cmd proof-terminal-string)))
+  (proof-start-queue 0 (length cmd) 
+		     (list (list (make-extent 0 (length cmd) cmd) cmd
+				 'proof-done-invisible))
+		     cmd))
+
+(defun proof-insert-pbp-command (cmd)
+  (set-buffer proof-shell-script-buffer)
+  (proof-check-process-available)
+  (let (start ext)
+    (goto-char (setq start (proof-end-of-locked)))
+    (insert cmd)
+    (setq ext (make-extent start (point)))
+    (set-extent-property ext 'type 'pbp)
+    (set-extent-property ext 'cmd cmd)
+    (proof-start-queue start (point) (list ext cmd 'proof-done-advancing))))
+
+(defun proof-done-advancing (ext)
+  (let ((end (extent-end-position ext)) cmd nam gext next)
+    (set-extent-endpoints proof-locked-ext 1 end)
+    (set-extent-start proof-queue-ext end)
+    (setq cmd (extent-property ext 'cmd))
+    (if (not (string= "Save" (substring cmd 0 4)))
+	(set-extent-property ext 'highlight 'mouse-face)
+      (if (string-match "Save\\s-+\\([^;]+\\)" cmd)
+	  (setq nam (match-string 1 cmd)))
+      (setq gext ext)
+      (while (progn (setq cmd (extent-property gext 'cmd))
+		    (not (string= "Goal" (substring cmd 0 4))))
+	(setq next (extent-at (extent-start-position gext) nil 
+			      'type nil 'before))
+	(delete-extent gext)
+	(setq gext next))
+      (if (null nam)
+	  (if (string-match "Goal\\s-+\\([^;]+\\)" cmd)
+	      (setq nam (match-string 1 cmd))
+ 	    (error "Oops... can't find Goal name!!!")))
+      (set-extent-end gext end)
+      (set-extent-property gext 'highlight 'mouse-face)
+      (set-extent-property gext 'type 'goalsave)
+      (set-extent-property gext 'name nam))))
+
+; Create a list of (int,string) pairs from the end of the locked
+; region to pos, denoting the command and the position of its
+; terminator. Return 'comment consed on the front if we're inside a
+; comment
+
+(defun proof-segment-up-to (pos)
+  (save-excursion
+    (let ((str (make-string 5000 ?x)) 
+	  (i 0) (depth 0) done alist c)
+      (goto-char (proof-end-of-locked))
+      (while (not done)
+	(cond 
+	 ((and (= (point) pos) (> depth 0))
+	  (setq done t alist (append alist (list 'comment))))
+	 ((= (point) (point-max))
+	  (setq done t))
+	 ((looking-at "\\*)")
+	  (if (= depth 0) 
+	      (progn (message "Warning: extraneous comment end") (setq done t))
+	    (setq depth (- depth 1)) (forward-char 2)))
+	 ((looking-at "(\\*")
+	  (setq depth (+ depth 1)) (forward-char 2))
+	 ((> depth 0) (forward-char))
+	 (t
+	  (setq c (char-after))
+	  (if (or (> i 0) (not (= (char-syntax c) ?\ )))
+	      (progn (aset str i c) (setq i (+ 1 i))))	  
+	  (forward-char)
+	  (if (= c ?\;)
+	      (progn 
+		(setq alist (cons (list (substring str 0 i) (point)) alist))
+		(if (>= (point) pos) (setq done t) (setq i 0)))))))
+      (nreverse alist))))
+
+(defun proof-semis-to-vanillas (semis)
+  (let ((ct (proof-end-of-locked)) ext alist cmd)
+    (while (not (null semis))
+      (setq ext (make-extent ct (cadar semis))
+            cmd (caar semis)
+	    ct (cadar semis))
+      (set-extent-property ext 'type 'vanilla)
+      (set-extent-property ext 'cmd cmd)
+      (setq alist (cons (list ext cmd 'proof-done-advancing) alist))
+      (setq semis (cdr semis)))
+    (nreverse alist)))
+
+(defun proof-assert-until-point ()
+  (interactive)
+  (proof-check-process-available)
+  (if (not (eq proof-buffer-type 'script))
+      (error "Must be running in a script buffer"))
+  (if (not (re-search-backward "\\S-" (proof-end-of-locked) t))
+      (error "Nothing to do!"))
+  (let (semis)			 
+    (setq semis (proof-segment-up-to (point)))
+    (if (or (null semis) (eq semis (list 'comment))) (error "Nothing to do!"))
+    (if (eq 'comment (car semis)) (setq semis (cdr semis)))
+    (goto-char (cadar (last semis)))
+    (proof-start-queue (proof-end-of-locked) (point)
+		       (proof-semis-to-vanillas semis))))
+    
+(defun proof-done-retracting (ext)
+  (let ((start (extent-start-position ext))
+        (end (extent-end-position ext)))
+    (set-extent-end proof-locked-ext start)
+    (set-extent-end proof-queue-ext start)
+    (mapcar-extents 'delete-extent nil (current-buffer) start end  nil 'type)
+    (delete-extent ext)))
+
+(defun lego-count-undos (sext)
+  (let ((ct 0) str i)
+    (while sext
+      (setq str (extent-property sext 'cmd))
+      (if (eq (extent-property sext 'type) 'vanilla)
+	(if (string-match
+	     "Refine\\|Intros\\|intros\\|Next\\|Qrepl\\|Claim\\|Equiv\\|For\\|Repeat\\|Succeed\\|Fail\\|Try" str)
+	    (setq ct (+ 1 ct)))
+	(setq i 0)
+	(while (< i (length str)) 
+	  (if (= (aref str i) ?\;) (setq ct (+ 1 ct)))
+	  (setq i (+ 1 i))))
+      (setq sext (extent-at (extent-end-position sext) nil 'type nil 'after)))
+  (concat "Undo " (int-to-string ct) ";")))
+
+(defun lego-find-and-forget (sext) 
+  (let (str ans)
+    (while sext
+      (if (eq (extent-property sext 'type) 'goalsave)
+	  (setq ans (concat "Forget " (extent-property sext 'name) ";")
+		sext nil)
+	(setq str (extent-property sext 'cmd))
+	(cond
+	 ((string-match "\\`\\s-*\\[\\s-*\\(\\w+\\)\\s-*[:=]" str)
+	  (setq ans (concat "Forget " (match-string 1 str) ";")
+		sext nil))
+	 ((string-match "\\`\\s-*Module\\s-+\\(\\w+\\)\\W" str)
+	  (setq ans (concat "ForgetMark " (match-string 1 str) ";")))
+	 (t 
+	  (setq sext 
+		(extent-at (extent-end-position sext) nil 'type nil 
+			   'after))))))
+    (or ans "Echo Nothing more to Forget;")))
+
+(defun proof-retract-until-point ()
+  (interactive)
+  (proof-check-process-available)
+  (if (not (eq proof-buffer-type 'script))
+      (error "Must be running in a script buffer"))
+  (let ((sext (extent-at (point) nil 'type))
+	(end (extent-end-position proof-locked-ext))
+	 ext start actions done)
+    (if (null end) (error "No locked region"))
+    (if (< end (point)) (error "Outside locked region"))
+    (setq start (extent-start-position sext))
+    
+    (setq ext (extent-at end nil 'type nil 'before))
+    (while (and ext (not done))		  
+      (cond 
+       ((eq (extent-property ext 'type) 'goalsave)
+	(setq done t))
+       ((string= (substring (extent-property ext 'cmd) 0 4) "Goal")
+	(setq done 'goal))
+       (t
+	(setq ext (extent-at (extent-start-position ext) nil
+			     'type nil 'before)))))
+    (if (eq done 'goal) 
+	(if (< (extent-end-position ext) (point))
+	    (setq actions (list (list (make-extent start end)
+				      (lego-count-undos sext)
+				      'proof-done-retracting))
+		  end start)
+	  (setq actions (list (list (make-extent (extent-start-position ext) 
+						 end)
+			      "KillRef;" 'proof-done-retracting))
+		end (extent-start-position ext))))
+    (if (> end start) 
+	(setq actions (append actions (list 
+				       (list (make-extent start end) 
+					     (lego-find-and-forget sext)
+					     'proof-done-retracting)))))
+    (proof-start-queue (min start end)
+		       (extent-end-position proof-locked-ext)
+		       actions)))
+
+(defun proof-restart-script ()
+  (interactive)
+  (if (not (eq proof-buffer-type 'script))
+      (error "Restart in script buffer"))
+  (mapcar-extents 'delete-extent nil 
+		  (current-buffer) (point-min)  (point-max) nil 'type)
+  (detach-extent proof-locked-ext)
+  (detach-extent proof-queue-ext)
+  (if (get-buffer proof-buffer-for-shell) 
+      (progn
+	(save-excursion 
+	  (set-buffer proof-buffer-for-shell)
+	  (setq proof-shell-busy nil)
+	  (if (get-buffer proof-shell-pbp-buffer)
+	      (kill-buffer proof-shell-pbp-buffer)))
+	(kill-buffer proof-buffer-for-shell))))
+	  
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;          Active terminator minor mode                            ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defvar proof-active-terminator-minor-mode nil)
+(deflocal proof-active-terminator-minor-mode nil 
+"active terminator minor mode flag")
+
 (make-variable-buffer-local 'proof-active-terminator-minor-mode)
 (put 'proof-active-terminator-minor-mode 'permanent-local t)
 
@@ -422,32 +946,31 @@ current command."
  (setq proof-active-terminator-minor-mode
         (if (null arg) (not proof-active-terminator-minor-mode)
           (> (prefix-numeric-value arg) 0)))
-   (if (fboundp 'redraw-modeline) (redraw-modeline) (force-mode-line-update)))
+   (if (fboundp 'redraw-modeline) (redraw-modeline) (redraw-modeline)))
 
 (defun proof-active-terminator ()
   (interactive)
   (if proof-active-terminator-minor-mode 
       (proof-process-active-terminator)
     (self-insert-command 1)))
-    
-(defun proof-process-active-terminator ()
-  "Process an active terminator key-press"  
 
-  (interactive)
-  (let (start)
-    (and (re-search-backward "[^ ]" nil t)
-	 (not (char-equal (following-char) proof-terminal-char)) 
-	 (forward-char))
-    (save-excursion
-      (setq start (proof-find-start-of-command)))
-    (if (not start)
-	 (self-insert-command 1)
-       (if (> start (point))
-	   (setq start (point)))
-       (proof-simulate-send-region start (point) t)
-       (if (char-equal proof-terminal-char (following-char))
-	   (forward-char)
-	 (self-insert-command 1)))))
+(defun proof-process-active-terminator ()
+  (proof-check-process-available)
+  (if (= (char-after) ?\;) (forward-char))
+
+  (let ((mrk (point)) ins semis)
+    (if (not (re-search-backward "\\S-" (proof-end-of-locked) t))
+	(error "Nothing to do!"))
+  (if (not (= (char-after) ?\;))
+      (progn (insert ";") (setq ins t)))
+  (setq semis (proof-segment-up-to (point)))    
+  (if (null semis) (error "Nothing to do!"))
+  (if (eq 'comment (car semis)) 
+      (progn (if ins (backward-delete-char)) (goto-char mrk) (insert ";"))
+    (goto-char (cadar (last semis)))
+    (proof-start-queue (proof-end-of-locked) (point)
+		       (proof-semis-to-vanillas semis)))))
+
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -456,7 +979,7 @@ current command."
 
 (defvar font-lock-declaration-name-face 
 (progn 
-  (cond ((x-display-color-p)
+  (cond ((eq (device-class) 'color)
 	 ;notice that device-class does not exist in Emacs 19.30
 
 	 (copy-face 'bold 'font-lock-declaration-name-face)
@@ -472,7 +995,7 @@ current command."
 	    (face-name 'font-lock-declaration-name-face)))))
 
 (defvar font-lock-tacticals-name-face
-(if (x-display-color-p)
+(if (eq (device-class) 'color)
     (let ((face (make-face 'font-lock-tacticals-name-face)))
       (dont-compile
 	(set-face-foreground face
@@ -481,7 +1004,7 @@ current command."
   (copy-face 'bold 'font-lock-tacticals-name-face)))
 
 (defvar font-lock-error-face
-(if (x-display-color-p)
+(if (eq (device-class) 'color)
     (let ((face (make-face 'font-lock-error-face)))
       (dont-compile
 	(set-face-foreground face
@@ -499,17 +1022,26 @@ current command."
 
 (define-derived-mode proof-mode fundamental-mode 
   "Proof" "Proof mode - not standalone"
-  ())
+  (setq proof-buffer-type 'script)
+  (setq proof-queue-ext (make-extent nil nil (current-buffer)))
+  (setq proof-locked-ext (make-extent nil nil (current-buffer)))
+  (set-queue-prop 'start-closed t)
+  (set-queue-prop 'end-open t)
+  (set-queue-prop 'read-only t)
+  (make-face 'proof-queue-face)
+  (set-face-background 'proof-queue-face "mistyrose")
+  (set-queue-prop 'face 'proof-queue-face)
+  
+  (set-locked-prop 'start-closed t)
+  (set-locked-prop 'end-open t)
+  (set-locked-prop 'read-only t)
+  (make-face 'proof-locked-face)
+  (set-face-background 'proof-locked-face "lavender")
+  (set-locked-prop 'face 'proof-locked-face)
+  (make-local-hook 'proof-pre-shell-start-hook)
+  (make-local-hook 'proof-shell-exit-hook)
 
-(define-key proof-mode-map [(control c) (control e)]
-  'proof-find-end-of-command)
-(define-key proof-mode-map [(control c) (control j)] 'proof-send-line)
-(define-key proof-mode-map [(control c) (control r)] 'proof-send-region)
-(define-key proof-mode-map [(control c) (control c)] 'proof-interrupt-subjob)
-
-(define-derived-mode proof-shell-mode comint-mode 
-  "proof-shell" "Proof shell mode - not standalone"
-  ())
+)
 
 ;; the following callback is an irritating hack - there should be some
 ;; elegant mechanism for computing constants after the child has
@@ -539,8 +1071,38 @@ current command."
     'proof-active-terminator-minor-mode)
 
   (define-key proof-mode-map proof-terminal-char 'proof-active-terminator)
+  (define-key proof-mode-map "\C-ca"    'proof-assert-until-point)
+  (define-key proof-mode-map "\C-cu"    'proof-retract-until-point)
 
   )
 
+(define-derived-mode proof-shell-mode comint-mode 
+  "proof-shell" "Proof shell mode - not standalone"
+  (setq proof-buffer-type 'shell)
+  (setq proof-shell-busy nil)
+  (setq proof-shell-sanitise t)
+  (setq proof-shell-delayed-output (cons 'insert "done"))
+  (setq comint-prompt-regexp proof-shell-prompt-pattern)
+  (and running-emacs19 (setq comint-scroll-show-maximum-output t))
+  (add-hook 'comint-output-filter-functions 'proof-shell-filter t)
+  (setq comint-append-old-input nil)
+  (setq proof-mark-ext (make-extent nil nil (current-buffer)))
+  (set-extent-property proof-mark-ext 'detachable nil)
+  (set-extent-property proof-mark-ext 'start-closed t)
+  (set-extent-property proof-mark-ext 'end-open t))
+
+(defun proof-shell-config-done ()
+  (accept-process-output (get-buffer-process (current-buffer)))
+  (proof-shell-insert proof-shell-init-cmd)
+  (while (extent-property proof-mark-ext 'detached)
+    (if (accept-process-output (get-buffer-process (current-buffer)) 5)
+	()
+      (error "Failed to initialise proof process"))))
+
+(define-derived-mode pbp-mode fundamental-mode 
+  (setq proof-buffer-type 'pbp)
+  "Proof" "Proof by Pointing"
+  (suppress-keymap pbp-mode-map)
+  (erase-buffer))
 
 (provide 'proof)
