@@ -115,7 +115,7 @@
    (concat
     "^"
     phox-comments-regexp
-    "\\(goal\\|prop\\(osition\\)?\\|em\\(ma\\)?\\|fact\\|cor\\(ollary\\)?\\|theo\\(rem\\)?\\)")
+    "\\(goal\\|prop\\(osition\\)?\\|lem\\(ma\\)?\\|fact\\|cor\\(ollary\\)?\\|theo\\(rem\\)?\\)")
    proof-save-command-regexp       
    (concat
     "^"
@@ -142,7 +142,7 @@ phox-comments-regexp
    (concat
     "^"
     phox-comments-regexp
-    "\\(constraints\\|flag\\|goals\\|print\\(_sort\\)?\\|eshow\\|search\\|priority\\|depend\\)")
+    "\\(constraints\\|flag\\|goals\\|pri\\(nt\\(_sort\\)?\\|ority\\)\\|eshow\\|search\\|depend\\)")
    proof-non-undoables-regexp       
    (concat
     "^"
