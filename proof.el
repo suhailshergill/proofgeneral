@@ -1,6 +1,6 @@
 ;; proof.el Major mode for proof assistants
 ;; Copyright (C) 1994 - 1997 LFCS Edinburgh. 
-;; Authors: Yves Bertot, Thomas Kleymann and Dilip Sequeira
+;; Authors: Yves Bertot, Healfdene Goguen, Thomas Kleymann and Dilip Sequeira
 
 ;; Maintainer: LEGO Team <lego@dcs.ed.ac.uk>
 ;; Thanks to David Aspinall, Robert Boyer, Rod Burstall,
@@ -24,6 +24,9 @@
 ;;   beginning of the module? 
 
 ;; $Log$
+;; Revision 1.10.2.13  1997/10/07 13:27:51  hhg
+;; New structure sharing as much as possible between LEGO and Coq.
+;;
 ;; Revision 1.10.2.12  1997/10/03 14:52:53  tms
 ;; o Replaced (string= "str" (substring cmd 0 n))
 ;;         by (string-match "^str" cmd)
@@ -51,6 +54,7 @@
 (require 'compile)
 (require 'comint)
 (require 'etags)
+(require 'proof-fontlock)
 
 (autoload 'w3-fetch "w3" nil t)
 
@@ -116,7 +120,7 @@
 (deflocal proof-shell-wakeup-char ""
   "A character terminating the prompt in annotation mode")
 
-(deflocal proof-shell-annotated-prompt-string ""
+(deflocal proof-shell-annotated-prompt-regexp ""
   "Annotated prompt pattern")
 
 (deflocal proof-shell-abort-goal-regexp nil
@@ -138,10 +142,10 @@
   "String indicating the end of an output from the prover following a
   `pbp-goal-command' or a `pbp-hyp-command'.") 
 
-(deflocal proof-shell-start-goals-string ""
+(deflocal proof-shell-start-goals-regexp ""
   "String indicating the start of the proof state.")
 
-(deflocal proof-shell-end-goals-string ""
+(deflocal proof-shell-end-goals-regexp ""
   "String indicating the end of the proof state.")
 
 (deflocal proof-shell-sanitise t "sanitise output?")
@@ -259,11 +263,6 @@
                         (string-match (concat "[^" separator "]")
                                       s end-of-word-occurence)) separator)))))
 
-(defun ids-to-regexp (l)
-  "transforms a non-empty list of identifiers `l' into a regular
-  expression matching any of its elements"
-(mapconcat (lambda (s) (concat "\\<" s "\\>")) l "\\|"))
-
 (defun w3-remove-file-name (address)
   "remove the file name in a World Wide Web address"
   (string-match "://[^/]+/" address)
@@ -301,7 +300,7 @@
   (goto-char (proof-end-of-locked)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  Starting and stopping the lego shell                            ;;
+;;  Starting and stopping the proof-system shell                    ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun proof-shell-live-buffer () 
@@ -468,7 +467,7 @@
 
 (defconst proof-shell-noise-regexp nil
   "Unwanted information output from the proof process within
-  `proof-start-goals-string' and `proof-end-goals-string'.")
+  `proof-start-goals-regexp' and `proof-end-goals-regexp'.")
 
 (defun pbp-make-top-extent (start end)
   (let (extent name)
@@ -588,12 +587,12 @@
     (setq proof-shell-delayed-output
 	  (cons 'insert (concat "\n" (match-string 0 string)))))
 
-   ((string-match proof-shell-start-goals-string string)
+   ((string-match proof-shell-start-goals-regexp string)
     (let (start end)
       (while (progn (setq start (match-end 0))
-		    (string-match proof-shell-start-goals-string 
+		    (string-match proof-shell-start-goals-regexp 
 				  string start)))
-      (string-match proof-shell-end-goals-string string start)
+      (string-match proof-shell-end-goals-regexp string start)
       (setq proof-shell-delayed-output 
 	    (cons 'analyse (substring string start end)))))
        
@@ -725,18 +724,18 @@ at the end of locked region (after inserting a newline)."
 (defun proof-shell-filter (str) 
   (if (string-match proof-shell-eager-annotation-end str)
       (proof-shell-popup-eager-annotation))
-  (if (string-match proof-shell-wakeup-char str)
+  (if (string-match (char-to-string proof-shell-wakeup-char) str)
       (if (extent-property proof-mark-ext 'detached)
 	  (progn
 	    (goto-char (point-min))
-	    (search-forward proof-shell-annotated-prompt-string)
+	    (re-search-forward proof-shell-annotated-prompt-regexp)
 	    (set-extent-endpoints proof-mark-ext (point) (point))
 	    (backward-delete-char 1))
 	(let (string mrk res cmd)	
 	    (goto-char (setq mrk (extent-start-position proof-mark-ext)))
-	    (search-forward proof-shell-annotated-prompt-string nil t)
+	    (re-search-forward proof-shell-annotated-prompt-regexp nil t)
 	    (set-extent-endpoints proof-mark-ext (point) (point))
-	    (backward-char (length proof-shell-annotated-prompt-string))
+	    (backward-char (- (match-end 0) (match-beginning 0)))
 	    (setq string (buffer-substring mrk (point)))
 	    (if proof-shell-sanitise 
 		(progn
@@ -775,7 +774,7 @@ at the end of locked region (after inserting a newline)."
 ;    a 'goalsave region has a 'name property which is the name of the goal
 ; 'pbp - denoting an extent created by pbp
 ; 'vanilla - denoting any other extent.
-;   'pbp & 'vanilla extents have a property 'cmd, which says what lego
+;   'pbp & 'vanilla extents have a property 'cmd, which says what
 ;   command they contain. 
 
 ; We don't allow commands while the queue has anything in it.  So we
@@ -914,7 +913,8 @@ deletes the region corresponding to the proof sequence."
 		   "Induction" "Immed"))
   "Undoable list")
 
-(defun lego-count-undos (sext)
+;; This is for proof-by-pointing
+(defun proof-count-undos (sext)
   (let ((ct 0) str i)
     (while sext
       (setq str (extent-property sext 'cmd))
@@ -930,7 +930,8 @@ deletes the region corresponding to the proof sequence."
       (setq sext (extent-at (extent-end-position sext) nil 'type nil 'after)))
   (concat "Undo " (int-to-string ct) proof-terminal-string)))
 
-(defun lego-find-and-forget (sext) 
+;; `Forget' is `Reset' in Coq
+(defun proof-find-and-forget (sext) 
   (let (str ans)
     (while sext
       (if (eq (extent-property sext 'type) 'goalsave)
@@ -940,9 +941,10 @@ deletes the region corresponding to the proof sequence."
 	(cond
 
 	 ;; matches e.g., "[a,b:T]"
+;; decl-defn-regexp doesn't exist for Coq!
 	 ((string-match (concat "\\`" (lego-decl-defn-regexp "[:|=]")) str)
 	  (let ((ids (match-string 1 str))) ; returns "a,b"
-	    (string-match lego-id ids)	; matches "a"
+	    (string-match proof-id ids)	; matches "a"
 	    (setq ans (concat "Forget " (match-string 1 ids)
 			      proof-terminal-string)
 		  sext nil)))
@@ -968,14 +970,14 @@ deletes the region corresponding to the proof sequence."
 (defun proof-retract-setup-actions (start end proof-command delete-region)
   (list (list (make-extent start end)
 	      proof-command
-	      `(lambda (ext) (proof-done-retracting ext ,delete-region)))))
+	      `(lambda (ext) (proof-done-retracting ext, delete-region)))))
 
 (defun proof-retract-until-point (&optional delete-region)
   "Sets up the proof process for retracting until point. In
-particular, it sets a flag for the filter process to call
-`proof-done-retracting' after the proof process has actually
-successfully reset its state. It optionally deletes the region in the
-proof script corresponding to the proof command sequence."
+   particular, it sets a flag for the filter process to call
+   `proof-done-retracting' after the proof process has actually
+   successfully reset its state. It optionally deletes the region in
+   the proof script corresponding to the proof command sequence."
   (interactive)
   (proof-check-process-available)
   (if (not (eq proof-buffer-type 'script))
@@ -1001,7 +1003,7 @@ proof script corresponding to the proof command sequence."
 	(if (<= (extent-end-position ext) (point))
 	    (setq actions
 		  (proof-retract-setup-actions
-		   start end (lego-count-undos sext) delete-region)
+		   start end (proof-count-undos sext) delete-region)
 		  end start)
 	  (setq actions
 		(proof-retract-setup-actions (extent-start-position ext) end
@@ -1010,16 +1012,16 @@ proof script corresponding to the proof command sequence."
     (if (> end start) 
 	(setq actions 
 	      (proof-retract-setup-actions start end
-					   (lego-find-and-forget sext)
+					   (proof-find-and-forget sext)
 					   delete-region)))
     (proof-start-queue (min start end)
 		       (extent-end-position proof-locked-ext)
 		       actions)))
 
-(defun proof-undo-last-successful-command  ()
+(defun proof-undo-last-successful-command ()
   "Undo last successful command, both in the buffer recording the
-  proof script and in the proof process. In particular, it deletes the
-corresponding part of the proof script."
+   proof script and in the proof process. In particular, it deletes
+   the corresponding part of the proof script."
   (interactive)
   (let* ((eol (proof-end-of-locked))
     ; this is inefficient because it searches for the last extent by
@@ -1032,8 +1034,6 @@ corresponding part of the proof script."
    
     (goto-char start-of-prev-cmd) 
     (proof-retract-until-point t)))
-
-
 
 (defun proof-restart-script ()
   (interactive)
@@ -1076,7 +1076,8 @@ current command."
   (or (assq 'proof-active-terminator-minor-mode minor-mode-alist)
       (setq minor-mode-alist
             (append minor-mode-alist
-                    (list '(proof-active-terminator-minor-mode " ;")))))
+                    (list '(proof-active-terminator-minor-mode
+			    (concat " " proof-terminal-string))))))
 
  (setq proof-active-terminator-minor-mode
         (if (null arg) (not proof-active-terminator-minor-mode)
@@ -1108,46 +1109,6 @@ current command."
       (proof-start-queue (proof-end-of-locked) (point)
 			 (proof-semis-to-vanillas semis)))))
 
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; font lock faces: declarations, errors, tacticals                 ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defvar font-lock-declaration-name-face 
-(progn 
-  (cond ((eq (device-class) 'color)
-	 ;notice that device-class does not exist in Emacs 19.30
-
-	 (copy-face 'bold 'font-lock-declaration-name-face)
-
-	 ;; Emacs 19.28 compiles this down to
-	 ;; internal-set-face-1. This is not compatible with XEmacs
-	 (dont-compile
-	   (set-face-foreground
-	    'font-lock-declaration-name-face "chocolate")))
-	(t (copy-face 'bold-italic 'font-lock-declaration-name-face)))
-  (if running-emacs19
-      (setq font-lock-declaration-name-face
-	    (face-name 'font-lock-declaration-name-face)))))
-
-(defvar font-lock-tacticals-name-face
-(if (eq (device-class) 'color)
-    (let ((face (make-face 'font-lock-tacticals-name-face)))
-      (dont-compile
-	(set-face-foreground face
-			     "MediumOrchid3"))
-      face)
-  (copy-face 'bold 'font-lock-tacticals-name-face)))
-
-(defvar font-lock-error-face
-(if (eq (device-class) 'color)
-    (let ((face (make-face 'font-lock-error-face)))
-      (dont-compile
-	(set-face-foreground face
-			     "red"))
-      face)
-  (copy-face 'bold 'font-lock-error-face)))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1211,11 +1172,21 @@ current command."
     'proof-active-terminator-minor-mode)
 
   (define-key proof-mode-map proof-terminal-char 'proof-active-terminator)
-  (define-key proof-mode-map "\C-ca"    'proof-assert-until-point)
-  (define-key proof-mode-map "\C-cu"    'proof-retract-until-point)
+  (define-key proof-mode-map [(control c) (control a)]    'proof-assert-until-point)
+  (define-key proof-mode-map [(control c) u]    'proof-retract-until-point)
   (define-key proof-mode-map [(control c) (control u)] 'proof-undo-last-successful-command)
   (define-key proof-mode-map [(control c) ?']
-  'proof-goto-end-of-locked))
+  'proof-goto-end-of-locked)
+
+  ;; For fontlock
+  (remove-hook 'font-lock-after-fontify-buffer-hook 'proof-zap-commas-buffer t)
+  (add-hook 'font-lock-after-fontify-buffer-hook 'proof-zap-commas-buffer nil t)
+  (remove-hook 'font-lock-mode-hook 'proof-unfontify-separator t)
+  (add-hook 'font-lock-mode-hook 'proof-unfontify-separator nil t)
+
+;; if we don't have the following, zap-commas fails to work.
+
+  (setq font-lock-always-fontify-immediately t))
 
 (define-derived-mode proof-shell-mode comint-mode 
   "proof-shell" "Proof shell mode - not standalone"
