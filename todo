@@ -201,6 +201,22 @@ C Reengineer *-count-undos and *-find-and-forget at generic level
 
 C Unify toolbar and menu functions. (1h)
 
+C (Isabelle) Messages in minibuffer appear in FSF Emacs with ugly ^J's.
+  Generic problem, really: maybe CRs should be stripped, and just first
+  line of multiline urgent message displayed in minibuffer.
+
+D Perhaps goal..save sequences should be closed also by the appearance
+  of a new goal, even though this may be a "broken" proof.  At the
+  moment, undoing past the new goal causes errors:
+  
+     <goal>
+     ...
+     <new goal>
+     ..
+
+  Will ACS idea handle this?
+  
+
 D Better support for adding a new prover: give error messages which
   hint at what variable to set (see proof-issue-goal for example).
 
@@ -468,6 +484,8 @@ C `proof-zap-commas-region' does not work for Emacs 20.2 on
   lego/example.l . On *initially* fontifying the buffer,
   commas are not zapped. However, when entering text, commata are
   zapped correctly. (2h)
+
+C proof-shell-dont-show-annotations doesn't seem to work.
 
 * Release 
 =========
