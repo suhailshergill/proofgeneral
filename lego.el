@@ -94,7 +94,7 @@
 (defvar lego-shell-working-dir ""
   "The working directory of the lego shell")
 
-(defvar lego-shell-prompt-pattern "^\\(Lego>[ \t]*\\)+"
+(defvar lego-shell-prompt-pattern "^\\(Lego>[ \201]*\\)+"
   "*The prompt pattern for the inferion shell running lego.")
 
 (defvar lego-shell-abort-goal-regexp "KillRef: ok, not in proof state"
@@ -516,12 +516,17 @@
         proof-shell-noise-regexp "Discharge\\.\\. "
         proof-shell-assumption-regexp lego-id
         proof-shell-goal-regexp lego-goal-regexp
-        proof-shell-wakeup-character "\t"
-        proof-shell-annotated-prompt-string "Lego> \t"
-        proof-shell-result-start "@s Pbp result @e"
-        proof-shell-result-end "@s End Pbp result @e"
-        proof-shell-start-goals-string "@s Start of Goals @e"
-        proof-shell-end-goals-string "@s End of Goals @e"
+        proof-shell-first-special-char ?\370
+        proof-shell-start-char ?\372
+        proof-shell-end-char ?\373
+        proof-shell-field-char ?\374
+        proof-shell-goal-char ?\375
+        proof-shell-wakeup-character "\371"
+        proof-shell-annotated-prompt-string "Lego> \371"
+        proof-shell-result-start "\372 Pbp result \373"
+        proof-shell-result-end "\372 End Pbp result \373"
+        proof-shell-start-goals-string "\372 Start of Goals \373"
+        proof-shell-end-goals-string "\372 End of Goals \373"
         proof-shell-init-cmd lego-process-config
         proof-shell-config 'lego-shell-adjust-line-width
         lego-shell-current-line-width nil)

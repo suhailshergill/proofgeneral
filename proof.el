@@ -26,6 +26,7 @@
    (list 'make-variable-buffer-local (list 'quote var))
    (list 'setq var value)))
 
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;               Configuration                                      ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -78,10 +79,10 @@
 ;;  Generic config for script management                            ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(deflocal proof-shell-wakeup-character "\t"
+(deflocal proof-shell-wakeup-character ""
   "A character terminating the prompt in annotation mode")
 
-(deflocal proof-shell-annotated-prompt-string "Lego> \t"
+(deflocal proof-shell-annotated-prompt-string ""
   "Annotated prompt pattern")
 
 (deflocal proof-shell-abort-goal-regexp nil
@@ -95,18 +96,18 @@
 (deflocal proof-shell-proof-completed-regexp nil
   "*Regular expression indicating that the proof has been completed.")
 
-(deflocal proof-shell-result-start nil
+(deflocal proof-shell-result-start ""
   "String indicating the start of an output from the prover following
   a `pbp-goal-command' or a `pbp-hyp-command'.")
 
-(deflocal proof-shell-result-end nil
+(deflocal proof-shell-result-end ""
   "String indicating the end of an output from the prover following a
   `pbp-goal-command' or a `pbp-hyp-command'.") 
 
-(deflocal proof-shell-start-goals-string "@s Start of Goals @e"
+(deflocal proof-shell-start-goals-string ""
   "String indicating the start of the proof state.")
 
-(deflocal proof-shell-end-goals-string "@s End of Goals @e"
+(deflocal proof-shell-end-goals-string ""
   "String indicating the end of the proof state.")
 
 (deflocal proof-shell-sanitise t "sanitise output?")
@@ -373,6 +374,14 @@
 ; buffer.  Attaching this behavior to the mouse is simply done by
 ; attaching a keymap to all the extents.
 
+(defun proof-expand-path (string)
+  (let ((a 0) (l (length string)) ls)
+    (while (< a l) 
+      (setq ls (cons (int-to-string (aref string a)) 
+		     (cons " " ls)))
+      (incf a))
+    (apply 'concat (nreverse ls))))
+
 (defun pbp-construct-command ()
   (save-excursion
    (let ((ext (extent-at (point) () 'proof))
@@ -381,12 +390,13 @@
       (cond ((and (extentp top-ext) (extentp ext))
 	     (let* ((top-info (extent-property top-ext 'proof-top-element))
 		   (path
-		    (concat (cdr top-info) " " (extent-property ext 'proof))))
+		    (concat (cdr top-info)
+			    (proof-expand-path (extent-property ext 'proof)))))
 	       (set-buffer pbp-script-buffer)
 	       (proof-invisible-command
 		(if (eq 'hyp (car top-info))
 		    (format pbp-hyp-command path)
-		  (format pbp-goal-command  path)))))
+		  (format pbp-goal-command path)))))
 
 	     ((extentp top-ext)
 	      (let ((top-info (extent-property top-ext 'proof-top-element)))
@@ -403,11 +413,11 @@
 ;;          All very lego-specific at present                       ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defconst proof-shell-annotation-char ?@ "Annotation Mark")
-(defconst proof-shell-goal-char ?g "goal mark")
-(defconst proof-shell-start-char ?s "annotation start")
-(defconst proof-shell-end-char ?e "annotation end")
-(defconst proof-shell-field-char ?x "annotated field end")
+(deflocal proof-shell-first-special-char nil "where the specials start")
+(deflocal proof-shell-goal-char nil "goal mark")
+(deflocal proof-shell-start-char nil "annotation start")
+(deflocal proof-shell-end-char nil "annotation end")
+(deflocal proof-shell-field-char nil "annotated field end")
 
 (defconst proof-shell-assumption-regexp nil
   "A regular expression matching the name of assumptions.")
@@ -439,31 +449,34 @@
 
 (defun proof-shell-analyse-structure (string)
   (save-excursion
-    (let* ((ip 0) (op 0) (l (length string)) (stack ()) (topl ()) ext n
-	   (out (make-string l ?x )) )
+    (let* ((ip 0) (op 0) ap (l (length string)) 
+	   (ann (make-string (length string) ?x))
+           (stack ()) (topl ()) 
+	   (out (make-string l ?x )) c ext)
       (while (< ip l)
-	(if (not (char-equal (aref string ip) proof-shell-annotation-char))
-	    (progn (aset out op (aref string ip))
-		   (setq op (+ 1 op)))
-	  (setq ip (+ 1 ip))
+	(setq c (aref string ip))
+	(if (< c proof-shell-first-special-char)
+	    (progn (aset out op c)
+		   (incf op))
 	  (cond 
-	   ((char-equal (aref string ip) proof-shell-goal-char)
-	    (setq topl (append topl (list (+ 1 op)) )))
-	   ((char-equal (aref string ip) proof-shell-start-char)
-	    (setq n (setq ip (+ 1 ip)))
-	    (while (not (char-equal (aref string ip) 
-				    proof-shell-annotation-char))
-	      (setq ip (+ 1 ip)))
-	    (setq stack (cons op (cons (substring string n ip) stack)))
-	    (setq ip (+ 1 ip)))
-	   ((char-equal (aref string ip) proof-shell-field-char)
+	   ((= c proof-shell-goal-char)
+	    (setq topl (append topl (list (+ 1 op)))))
+	   ((= c proof-shell-start-char)	    
+	    (setq ap (aref string (incf ip)))
+	    (incf ip)
+	    (while (not (= (aref string ip) proof-shell-end-char))
+	      (aset ann ap (aref string ip))
+	      (incf ap)
+	      (incf ip))
+	    (setq stack (cons op (cons (substring ann 0 ap) stack))))
+	   ((= c proof-shell-field-char)
 	    (setq ext (make-extent (car stack) op out))
 	    (set-extent-property ext 'mouse-face 'highlight)
 	    (set-extent-property ext 'keymap pbp-keymap)
 	    (set-extent-property ext 'proof (cadr stack))
 	    (set-extent-property ext 'duplicable t)
 	    (setq stack (cddr stack)))))
-	(setq ip (+ 1 ip)))
+	(incf ip))
       (display-buffer (set-buffer proof-shell-pbp-buffer))
       (erase-buffer)
       (insert (substring out 0 op))
@@ -475,17 +488,14 @@
 (defun proof-shell-strip-annotations (string)
   (let* ((ip 0) (op 0) (l (length string)) (out (make-string l ?x )))
     (while (< ip l)
-      (if (char-equal (aref string ip) proof-shell-annotation-char)
-	  (if (char-equal (aref string (setq ip (+ 1 ip))) 
-			  proof-shell-start-char)
-	      (progn
-		(while (not (char-equal (aref string ip) 
-					proof-shell-annotation-char))
-		  (setq ip (+ 1 ip)))
-		(setq ip (+ 1 ip))))
+      (if (>= (aref string ip) proof-shell-first-special-char)
+	  (if (char-equal (aref string ip) proof-shell-start-char)
+	      (progn (incf ip)
+		     (while (< (aref string ip) proof-shell-first-special-char)
+		       (incf ip))))
 	(aset out op (aref string ip))
-	(setq op (+ 1 op)))
-      (setq ip (+ 1 ip)))
+	(incf op))
+      (incf ip))
     (substring out 0 op)))
 
 (defun proof-shell-handle-error (cmd string)
@@ -568,6 +578,10 @@
   (comint-send-input))
 
 (defun proof-send (string)
+  (let ((l (length string)) (i 0))
+    (while (< i l)
+      (if (= (aref string i) ?\n) (aset string i ?\ ))
+      (incf i)))
   (save-excursion
     (set-buffer proof-buffer-for-shell)
     (proof-shell-insert string)))
@@ -780,7 +794,7 @@
 	  (setq depth (+ depth 1)) (forward-char 2))
 	 ((> depth 0) (forward-char))
 	 (t
-	  (setq c (char-after))
+	  (setq c (char-after (point)))
 	  (if (or (> i 0) (not (= (char-syntax c) ?\ )))
 	      (progn (aset str i c) (setq i (+ 1 i))))	  
 	  (forward-char)
@@ -956,12 +970,12 @@ current command."
 
 (defun proof-process-active-terminator ()
   (proof-check-process-available)
-  (if (= (char-after) ?\;) (forward-char))
+  (if (= (char-after (point)) ?\;) (forward-char))
 
   (let ((mrk (point)) ins semis)
     (if (not (re-search-backward "\\S-" (proof-end-of-locked) t))
 	(error "Nothing to do!"))
-  (if (not (= (char-after) ?\;))
+  (if (not (= (char-after (point)) ?\;))
       (progn (insert ";") (setq ins t)))
   (setq semis (proof-segment-up-to (point)))    
   (if (null semis) (error "Nothing to do!"))
