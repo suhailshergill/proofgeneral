@@ -18,7 +18,6 @@
 (require 'etags)
 
 (autoload 'w3-fetch "w3" nil t)
-(autoload 'easy-menu-define "easymenu")
 
 (defmacro deflocal (var value docstring)
  (list 'progn
@@ -260,6 +259,11 @@
 
 (defun proof-end-of-locked ()
   (or (extent-end-position proof-locked-ext) (point-min)))
+
+(defun proof-goto-end-of-locked ()
+  "Jump to the end of the locked region."
+  (interactive)
+  (goto-char (proof-end-of-locked)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Starting and stopping the lego shell                            ;;
@@ -800,7 +804,7 @@ at the end of locked region (after inserting a newline)."
   (save-excursion
     (let ((str (make-string 5000 ?x)) 
 	  (i 0) (depth 0) done alist c)
-      (goto-char (proof-end-of-locked))
+     (proof-goto-end-of-locked)
       (while (not done)
 	(cond 
 	 ((and (= (point) pos) (> depth 0))
@@ -890,6 +894,10 @@ at the end of locked region (after inserting a newline)."
 	(setq str (extent-property sext 'cmd))
 	(cond
 	 ((string-match "\\`\\s-*\\[\\s-*\\(\\w+\\)\\s-*[:=]" str)
+	  (setq ans (concat "Forget " (match-string 1 str) ";")
+		sext nil))
+
+	 ((string-match "\\`Inductive\\s-*\\[\\s-*\\w+\\s-*:[^;]+\\`Parameters\\\s-*\\[\\s-*\\(\\w+\\)\\s-*:" str)
 	  (setq ans (concat "Forget " (match-string 1 str) ";")
 		sext nil))
 
@@ -1002,9 +1010,13 @@ current command."
     (self-insert-command 1)))
 
 (defun proof-process-active-terminator ()
+  "Insert the terminator in an intelligent way and send the commands
+  between the previous and the new terminator to the proof process."
   (proof-check-process-available)
   (let ((mrk (point)) ins semis)
-    (if (looking-at "\\s-")
+
+    ;; are we looking at a whitespace character or the end of the buffer?
+    (if (looking-at "\\s-\\|\\'") 
 	  (if (not (re-search-backward "\\S-" (proof-end-of-locked) t))
 	      (error "Nothing to do!")))
     (if (not (= (char-after (point)) ?\;))
@@ -1112,6 +1124,9 @@ current command."
 	(concat proof-terminal-string "\\|" (regexp-quote proof-comment-start)
 		"\\|" (regexp-quote proof-comment-end)))
 
+
+;; keymap
+
   (define-key proof-mode-map
     (vconcat [(control c)] (vector proof-terminal-char))
     'proof-active-terminator-minor-mode)
@@ -1119,8 +1134,10 @@ current command."
   (define-key proof-mode-map proof-terminal-char 'proof-active-terminator)
   (define-key proof-mode-map "\C-ca"    'proof-assert-until-point)
   (define-key proof-mode-map "\C-cu"    'proof-retract-until-point)
+  (define-key proof-mode-map [(control c) ?']
+  'proof-goto-end-of-locked)
 
-  )
+
 
 (define-derived-mode proof-shell-mode comint-mode 
   "proof-shell" "Proof shell mode - not standalone"
