@@ -1,16 +1,17 @@
 ;; lego.el Major mode for LEGO proof assistants
-;; Copyright (C) 1994, 1995, 1996 LFCS Edinburgh. 
-;; This version by Dilip Sequeira, by rearranging Thomas Schreiber's
-;; code.
-
+;; Copyright (C) 1994, 1995, 1996, 1997 LFCS Edinburgh. 
+;; Author: Thomas Schreiber and Dilip Sequeira
 ;; Maintainer: LEGO Team <lego@dcs.ed.ac.uk>
-;; Time-stamp: <05 Dec 96 tms /home/tms/elisp/lego.el>
-;; Thanks to David Aspinall, Robert Boyer, Rod Burstall,
-;;           James McKinna, Mark Ruys, Martin Steffen, Perdita Stevens  
+
+;; $Log$
+;; Revision 1.20.2.5  1997/07/08 11:52:17  tms
+;; Made dependency on proof explicit
+;;
 
 (require 'easymenu)
 (require 'font-lock)
 (require 'outline)
+(require 'proof)
 
 ; Configuration                                  
 
@@ -88,7 +89,7 @@
 
 ;; ----- lego-shell configuration options
 
-(defvar lego-prog-name "/home/djs/lego/lego/bin/legoML"
+(defvar lego-prog-name "legoML"
   "*Name of program to run as lego.")
 
 (defvar lego-shell-working-dir ""
