@@ -4,11 +4,7 @@ There are improvements to Coq support, minor improvements to
 documentation, and some improvements for Isabelle, in particular to
 support additional features in Isabelle 2005.
 
-Compatibility has been improved for more Emacs versions across
-different operating systems.
-
-Support for Unicode-safe interaction modes has been added (i.e.,
-not using Unicode-prefix characters as specials).
+Compatibility has been improved for more Emacs versions.
 
 
 [da, 10/8/05].
