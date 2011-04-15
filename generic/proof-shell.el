@@ -15,7 +15,7 @@
 
 ;;; Code:
 
-(require 'cl)				; set-difference
+(require 'cl)				; set-difference, every
 
 (eval-when-compile
   (require 'span)
@@ -25,7 +25,7 @@
 (require 'pg-response)
 (require 'pg-goals)
 (require 'pg-user)			; proof-script, new-command-advance
-
+(require 'proof-tree)
 
 ;;
 ;; Internal variables used by proof shell
@@ -998,7 +998,8 @@ If a there is a next command after that, send it to the process.
 If the action list becomes empty, unlock the process and remove
 the queue region.
 
-The return value is non-nil if the action list is now empty."
+The return value is non-nil if the action list is now empty or
+contains only invisible elements for prooftree synchronization."
   (unless (null proof-action-list)
     (save-excursion
       (if proof-script-buffer		      ; switch to active script
@@ -1016,6 +1017,9 @@ The return value is non-nil if the action list is now empty."
 
 	(setq cbitems (cons item
 			    (proof-shell-slurp-comments)))
+
+	(if proof-tree-external-display
+	    (run-hooks 'proof-tree-urgent-action-hook))
 
 	;; if action list is (nearly) empty, ensure prover is noisy.
 	(if (and proof-shell-silent
@@ -1047,7 +1051,10 @@ The return value is non-nil if the action list is now empty."
 	    (pg-processing-complete-hint))
 	  (pg-finish-tracing-display))
 
-	(null proof-action-list)))))
+	(or (null proof-action-list)
+	    (every
+	     (lambda (item) (memq 'proof-tree-show-subgoal (nth 3 item)))
+	     proof-action-list))))))
 
 
 (defun proof-shell-insert-loopback-cmd  (cmd)
@@ -1417,7 +1424,10 @@ by the filter is to send the next command from the queue."
       (if (proof-shell-exec-loop)
 	  (setq proof-shell-last-output-kind
 		;; only display result for last output
-		(proof-shell-handle-delayed-output))))))
+		(proof-shell-handle-delayed-output)))
+      ;; send output to the proof tree visualizer, if currently enabled
+      (if proof-tree-external-display
+	  (proof-tree-handle-delayed-output cmd flags)))))
 
 
 (defsubst proof-shell-display-output-as-response (flags str)

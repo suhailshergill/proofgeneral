@@ -104,6 +104,7 @@ without adjusting window layout."
   (define-key map [(control meta e)] 'proof-goto-command-end)
   (define-key map [(control c) (control b)] 'proof-process-buffer)
   ;; C-c C-c is proof-interrupt-process in universal-keys
+  (define-key map [(control c) (control d)] 'proof-tree-external-display-toggle)
   ;; C-c C-f is proof-find-theorems in universal-keys
   (define-key map [(control c) (control H)] 'proof-help)
   ;; C-c C-l is proof-layout-windows in universal-keys
@@ -297,6 +298,7 @@ without adjusting window layout."
 (proof-deftoggle proof-fast-process-buffer)
 (proof-deftoggle proof-imenu-enable proof-imenu-toggle)
 (proof-deftoggle proof-keep-response-history)
+(proof-deftoggle proof-tree-external-display)
 
 (proof-eval-when-ready-for-assistant
  ;; togglers for settings separately configurable per-prover
@@ -363,6 +365,10 @@ without adjusting window layout."
 	:active proof-autosend-enable
 	:help "Automatically send the whole buffer"]))
      ("Display"
+      ["prooftree display" proof-tree-external-display-toggle
+       :style toggle
+       :selected proof-tree-external-display
+       :help "Display proof tree in external window"]
       ["Toolbar" proof-toolbar-toggle
        :style toggle
        :visible (featurep 'tool-bar)

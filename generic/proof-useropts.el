@@ -404,6 +404,13 @@ Mac OS X."
   :type 'boolean
   :group 'proof-user-options)
 
+(defcustom proof-tree-external-display nil
+  "Display the proof tree in external prooftree windows.
+Requires prooftree to be installed."
+  :type 'boolean
+  :group 'proof-user-options
+  :group 'proof-tree)
+  
 
 
 (provide 'proof-useropts)
