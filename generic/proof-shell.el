@@ -1425,9 +1425,8 @@ by the filter is to send the next command from the queue."
 	  (setq proof-shell-last-output-kind
 		;; only display result for last output
 		(proof-shell-handle-delayed-output)))
-      ;; send output to the proof tree visualizer, if currently enabled
-      (if proof-tree-external-display
-	  (proof-tree-handle-delayed-output cmd flags)))))
+      ;; send output to the proof tree visualizer
+      (proof-tree-handle-delayed-output cmd flags))))
 
 
 (defsubst proof-shell-display-output-as-response (flags str)

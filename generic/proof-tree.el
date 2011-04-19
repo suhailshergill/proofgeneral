@@ -222,10 +222,14 @@ variables."
     (setq proof-tree-last-state 0)))
 
 
+(defun proof-tree-is-running ()
+  "Return t if prooftree is properly running."
+  (and proof-tree-process
+       (eq (process-status proof-tree-process) 'run)))
+
 (defun proof-tree-ensure-running ()
   "Ensure the prooftree process is running properly."
-  (unless (and proof-tree-process
-	       (eq (process-status proof-tree-process) 'run))
+  (unless (proof-tree-is-running)
     (proof-tree-start-process)))
 
 
@@ -341,11 +345,14 @@ The delayed output is in the region
 	 (proof-name (cadr proof-info))
 	 (current-goals (proof-tree-extract-goals start end)))
     (if current-goals
-	(let ((current-sequent-id (car current-goals)))
+	(let ((current-sequent-id (car current-goals))
+	      ;; nth 1 current-goals  contains the  sequent text
+	      ;; nth 2 current-goals  contains the  additional ID's
+	      )
 	  ;; send all to prooftree
 	  (proof-tree-send-goal-state
 	   proof-state proof-name cmd
-	   (nth 0 current-goals)
+	   current-sequent-id
 	   (nth 1 current-goals)
 	   (nth 2 current-goals))
 	  ;; put current sequent into hash (if it is not there yet)
@@ -411,8 +418,6 @@ The delayed output is in the region
 	  (setq proof-tree-last-state proof-state)))))
 
 
-;; XXX fix to send undo after switching prooftree off with C-c C-d
-
 (defun proof-tree-handle-delayed-output (cmd flags)
   "Process delayed output for prooftree.
 This function is the main entry point of the Proof General
@@ -422,18 +427,22 @@ current goal, or whether there is output that has been generated
 for prooftree only. Then the appropriate action is taken, which
 eventually will send appropriate commands to prooftree."
   (unless (memq 'invisible flags)
-    (proof-tree-ensure-running)
     (let ((proof-info (funcall proof-tree-get-proof-info cmd flags)))
       (save-excursion
 	(cond
 	 ((<= (car proof-info) proof-tree-last-state)
 	  ;; went back to some old state: there must have been an undo command
-	  (proof-tree-handle-undo proof-info))
-	 ((memq 'proof-tree-show-subgoal flags)
+	  (if (proof-tree-is-running)
+	      (proof-tree-handle-undo proof-info)))
+	 ((and proof-tree-external-display
+	       (memq 'proof-tree-show-subgoal flags))
 	  ;; display of a known sequent to update it in prooftree
+	  (proof-tree-ensure-running)
 	  (proof-tree-update-sequent proof-info))
-	 ((car (cdr proof-info))
+	 ((and proof-tree-external-display
+	       (car (cdr proof-info)))
 	  ;; we are inside a proof: display something
+	  (proof-tree-ensure-running)
 	  (proof-tree-handle-proof-output cmd proof-info)))))))
 
 
