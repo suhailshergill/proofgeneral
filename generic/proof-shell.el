@@ -1006,7 +1006,8 @@ contains only invisible elements for prooftree synchronization."
 	  (set-buffer proof-script-buffer))
 
       (let* ((item    (car proof-action-list))
-	     (flags   (nth 3 (car proof-action-list)))
+	     (cmd     (nth 1 item))
+	     (flags   (nth 3 item))
 	     cbitems)
 
 	;; now we should invoke callback on just processed command,
@@ -1019,7 +1020,7 @@ contains only invisible elements for prooftree synchronization."
 			    (proof-shell-slurp-comments)))
 
 	(if proof-tree-external-display
-	    (run-hooks 'proof-tree-urgent-action-hook))
+	    (proof-tree-urgent-action cmd flags))
 
 	;; if action list is (nearly) empty, ensure prover is noisy.
 	(if (and proof-shell-silent
