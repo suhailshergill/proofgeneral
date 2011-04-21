@@ -154,9 +154,12 @@ contains in the following order:
 
 * the current state number (as positive integer)
 * the name of the current proof (as string)
+* t if the current state is the start of a proof, nil otherwise
 
 The state number is used to implement undo in prooftree. The
-proof name is used to distinguish different proofs inside prooftree."
+proof name is used to distinguish different proofs inside
+prooftree. The start-of-proof boolean is used to prevent to start
+prooftree display in the middle of a proof."
   :type 'function
   :group 'proof-tree-internals)
 
@@ -233,6 +236,17 @@ contain the complete sequent text of newly generated subgoals.)"
   "Last state of the proof assistant.
 Used for undoing in prooftree.")
 
+(defvar proof-tree-current-proof nil
+  "Name of the currently displayed proof in prooftree or nil.
+Used to prevent the user from starting the prooftree display in
+the middle of a proof. To support proper undo operation, this
+variable should only be changed via `proof-tree-start-proof' or
+'proof-tree-end-proof'.")
+
+(defvar proof-tree-current-proof-history nil
+  "Alist mapping state numbers to old values of `proof-tree-current-proof'.
+Needed for undo.")
+
 (defvar proof-tree-sequent-hash (make-hash-table :test 'equal)
   "Hash table to remember sequent ID's.
 Needed because some proof assistants do not distinguish between
@@ -262,6 +276,15 @@ properly working, this variable should only be changed by using
 Needed for undo.")
   
 
+;;
+;; Utilities
+;;
+
+(defun proof-tree-warning (message level)
+  "Display warning MESSAGE and throw 'proof-tree-exit if LEVEL is :error."
+  (display-warning '(proof-general proof-tree) message level)
+  (if (or (eq level :error) (eq level :emergency))
+      (throw 'proof-tree-exit nil)))
 
 ;;
 ;; Process creation
@@ -384,20 +407,32 @@ non-nil no copy is done."
 		      (copy-alist proof-tree-existentials-alist)))
 	      proof-tree-existentials-alist-history)))
 
+(defun proof-tree-undo-state-var (proof-state var-symbol history-symbol)
+  "Undo changes to VAR-SYMBOL using HISTORY-SYMBOL.
+This is a general undo function for variables that keep their
+undo information in a alist that maps state numbers to old
+values. Argument PROOF-STATE is that state to reestablish,
+VAR-SYMBOL is (the symbol of) the variable to undo and
+HISTORY-SYMBOL is (the symbol of) the undo history alist."
+  (let ((undo-not-finished t)
+	(history (symbol-value history-symbol))
+	(var (symbol-value var-symbol)))
+    (while (and undo-not-finished history)
+      (if (>= (caar history) proof-state)
+	  (progn
+	    (setq var (cdr (car history)))
+	    (setq history (cdr history)))
+	(setq undo-not-finished nil)))
+    (set var-symbol var)
+    (set history-symbol history)))
+
 (defun proof-tree-undo-existentials (proof-state)
   "Undo changes in `proof-tree-existentials-alist'.
 Change `proof-tree-existentials-alist' back to its contents in
 state PROOF-STATE."
-  (let ((undo-not-finished t))
-    (while (and undo-not-finished
-		proof-tree-existentials-alist-history)
-      (if (>= (caar proof-tree-existentials-alist-history) proof-state)
-	  (progn
-	    (setq proof-tree-existentials-alist
-		  (cdr (car proof-tree-existentials-alist-history)))
-	    (setq proof-tree-existentials-alist-history
-		  (cdr proof-tree-existentials-alist-history)))
-	(setq undo-not-finished nil)))))
+  (proof-tree-undo-state-var proof-state
+			     'proof-tree-existentials-alist
+			     'proof-tree-existentials-alist-history))
 
 (defun proof-tree-delete-existential-assoc (state ex-assoc)
   "Delete mapping EX-ASSOC from 'proof-tree-existentials-alist'."
@@ -419,8 +454,36 @@ Do nothing if this mapping does already exist."
 		  proof-tree-existentials-alist)))))
 
 (defun proof-tree-reset-existentials (proof-state)
+  "Clear the mapping in `proof-tree-existentials-alist'."
   (proof-tree-record-existentials-state proof-state 'dont-copy)
   (setq proof-tree-existentials-alist nil))
+
+
+;;
+;; proof-tree-current-proof manipulations and history
+;;
+
+(defun proof-tree-record-current-proof-state (state)
+  "Store current state of `proof-tree-current-proof' for undo purposes."
+  (setq proof-tree-current-proof-history
+	(cons (cons state proof-tree-current-proof)
+	      proof-tree-current-proof-history)))
+
+(defun proof-tree-undo-current-proof (proof-state)
+  "Reestablish state PROOF-STATE of `proof-tree-current-proof'."
+  (proof-tree-undo-state-var proof-state
+			     'proof-tree-current-proof
+			     'proof-tree-current-proof-history))
+
+(defun proof-tree-start-proof (state name)
+  "Set `proof-tree-current-proof'."
+  (proof-tree-record-current-proof-state state)
+  (setq proof-tree-current-proof name))
+
+(defun proof-tree-end-proof (state)
+  "Clear `proof-tree-current-proof'."
+  (proof-tree-record-current-proof-state state)
+  (setq proof-tree-current-proof nil))
 
 ;;
 ;; Process output from the proof assistant
@@ -552,6 +615,30 @@ The delayed output is in the region
 	      (current-sequent-text (nth 1 current-goals))
 	      ;; nth 2 current-goals  contains the  additional ID's
 	      )
+	  (cond
+	   ((equal proof-tree-current-proof proof-name)
+	    ;; everything is fine
+	    ())
+	   (proof-tree-current-proof
+	    ;; new proof started while the old one is not yet finished
+	    (proof-tree-warning
+	     "Nested proofs are not supported in prooftree display."
+	     :warning)
+	    (proof-tree-start-proof proof-state proof-name))
+	   
+	   ;; now proof-tree-current-proof is nil and proof-name is non-nil
+	   ((nth 2 proof-info)
+	    ;; start of a proof -- everything ok
+	    (proof-tree-start-proof proof-state proof-name))
+	   (t
+	    ;; ... and not the start of a proof
+	    (setq proof-tree-external-display nil)
+	    (proof-tree-warning
+	     (concat
+	      "Cannot start prooftree display in the middle of a proof. "
+	      "Disable prooftree display")
+	     :error)))
+	    
 	  ;; send all to prooftree
 	  (proof-tree-send-goal-state
 	   proof-state proof-name cmd
@@ -566,12 +653,14 @@ The delayed output is in the region
 					    current-sequent-text)
 	  ;; remember state for undo
 	  (setq proof-tree-last-state proof-state))
+      
       ;; no current goal found, maybe the proof has been completed?
       (goto-char start)
       (if (proof-re-search-forward proof-tree-proof-completed-regexp end t)
 	  (progn
 	    (proof-tree-send-proof-completed proof-state proof-name cmd)
 	    (proof-tree-reset-existentials proof-state)
+	    (proof-tree-end-proof proof-state)
 	    (setq proof-tree-last-state proof-state))))))
 
     
@@ -590,8 +679,9 @@ points:
        (if (>= state proof-state)
 	   (remhash sequent-id proof-tree-sequent-hash)))
      proof-tree-sequent-hash)
-    ;; undo changes in proof-tree-existentials-alist
+    ;; undo changes in other state vars
     (proof-tree-undo-existentials proof-state)
+    (proof-tree-undo-current-proof proof-state)
     ;; send undo
     (proof-tree-send-undo proof-state)
     (setq proof-tree-last-state (- proof-state 1))))
@@ -631,14 +721,14 @@ The delayed output is in the region
 	  (setq proof-tree-last-state proof-state)))))
 
 
-(defun proof-tree-handle-delayed-output (cmd flags)
+(defun proof-tree-handle-delayed-output-internal (cmd flags)
   "Process delayed output for prooftree.
-This function is the main entry point of the Proof General
-prooftree support. It examines the delayed output in order to
-find out whether an some undo command occured, there is a new
-current goal, or whether there is output that has been generated
-for prooftree only. Then the appropriate action is taken, which
-eventually will send appropriate commands to prooftree."
+Examines the delayed output in order to find out whether an some
+undo command occured, there is a new current goal, or whether
+there is output that has been generated for prooftree only. Then
+the appropriate action is taken, which eventually will send
+appropriate commands to prooftree."
+
   (unless (memq 'invisible flags)
     (let ((proof-info (funcall proof-tree-get-proof-info cmd flags)))
       (save-excursion
@@ -653,11 +743,27 @@ eventually will send appropriate commands to prooftree."
 	  (proof-tree-ensure-running)
 	  (proof-tree-update-sequent proof-info))
 	 ((and proof-tree-external-display
-	       (car (cdr proof-info)))
+	       (cadr proof-info))
 	  ;; we are inside a proof: display something
 	  (proof-tree-ensure-running)
 	  (proof-tree-handle-proof-output cmd proof-info)))))))
 
+
+(defun proof-tree-handle-delayed-output (cmd flags)
+  "Process delayed output for prooftree.
+This function is the main entry point of the Proof General
+prooftree support. It examines the delayed output in order to
+find out whether an some undo command occured, there is a new
+current goal, or whether there is output that has been generated
+for prooftree only. Then the appropriate action is taken, which
+eventually will send appropriate commands to prooftree.
+
+Actually all useful work is done inside
+`proof-tree-handle-delayed-output-internal'. This function is
+only a wrapper around `proof-tree-handle-delayed-output-internal'
+to catch non-local exits."
+  (catch 'proof-tree-exit
+    (proof-tree-handle-delayed-output-internal cmd flags)))
 
 ;;
 ;; Trailer
