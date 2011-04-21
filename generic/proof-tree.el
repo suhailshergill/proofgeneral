@@ -613,7 +613,7 @@ current buffer."
 	(list sequent-id sequent-text additional-goal-ids))
     nil))
 
-(defun proof-tree-check-proof-state (proof-state proof-name)
+(defun proof-tree-check-proof-state (proof-state proof-name start-of-proof)
   "Check that prooftree display is not started at invalid points.
 The callchain of this function ensures that PROOF-NAME is not nil."
   (cond
@@ -628,7 +628,7 @@ The callchain of this function ensures that PROOF-NAME is not nil."
     (proof-tree-start-proof proof-state proof-name))
    
    ;; now proof-tree-current-proof is nil and proof-name is non-nil
-   ((nth 2 proof-info)
+   (
     ;; start of a proof -- everything ok
     (proof-tree-start-proof proof-state proof-name))
    (t
@@ -663,7 +663,8 @@ The delayed output is in the region
 	      (current-sequent-text (nth 1 current-goals))
 	      ;; nth 2 current-goals  contains the  additional ID's
 	      )
-	  (proof-tree-check-proof-state proof-state proof-name)
+	  (proof-tree-check-proof-state proof-state proof-name
+					(nth 2 proof-info))
 	  ;; send all to prooftree
 	  (proof-tree-send-goal-state
 	   proof-state proof-name cmd-string
@@ -700,7 +701,8 @@ The delayed output of the navigation command is in the region
     (if (proof-re-search-forward proof-tree-current-goal-regexp end t)
 	(let ((current-id (buffer-substring-no-properties (match-beginning 1)
 							  (match-end 1))))
-	  (proof-tree-check-proof-state proof-state proof-name)
+	  (proof-tree-check-proof-state proof-state proof-name
+					(nth 2 proof-info))
 	  ;; send all to prooftree
 	  (proof-tree-send-switch-goal proof-state proof-name current-id)))))
 
