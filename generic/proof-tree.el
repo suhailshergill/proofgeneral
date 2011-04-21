@@ -100,6 +100,14 @@
   :group 'proof-general-internals
   :package-version '(ProofGeneral . "4.X"))
 
+(defcustom proof-tree-ignored-commands-regexp nil
+  "Commands that should be ignored for the prooftree display.
+The output of commands matching this regular expression is not
+send to prooftree. It should match commands that display
+additional information but do not make any proof progress."
+  :type 'regexp
+  :group 'proof-tree-internals)
+
 (defcustom proof-tree-current-goal-regexp nil
   "Regexp to match the current goal and its ID.
 The regexp is matched against the output of the proof assistant
@@ -591,6 +599,33 @@ current buffer."
 	(list sequent-id sequent-text additional-goal-ids))
     nil))
 
+(defun proof-tree-check-proof-state (proof-state proof-name)
+  "Check that prooftree display is not started at invalid points.
+The callchain of this function ensures that PROOF-NAME is not nil."
+  (cond
+   ((equal proof-tree-current-proof proof-name)
+    ;; everything is fine, nothing to do
+    ())
+   (proof-tree-current-proof
+    ;; new proof started while the old one is not yet finished
+    (proof-tree-warning
+     "Nested proofs are not supported in prooftree display."
+     :warning)
+    (proof-tree-start-proof proof-state proof-name))
+   
+   ;; now proof-tree-current-proof is nil and proof-name is non-nil
+   ((nth 2 proof-info)
+    ;; start of a proof -- everything ok
+    (proof-tree-start-proof proof-state proof-name))
+   (t
+    ;; ... and not the start of a proof
+    (setq proof-tree-external-display nil)
+    (proof-tree-warning
+     (concat
+      "Cannot start prooftree display in the middle of a proof. "
+      "Disable prooftree display")
+     :error))))
+
 (defun proof-tree-handle-proof-output (cmd proof-info)
   "Send CMD and goals in delayed output to prooftree.
 This function is called indirectly from
@@ -615,30 +650,7 @@ The delayed output is in the region
 	      (current-sequent-text (nth 1 current-goals))
 	      ;; nth 2 current-goals  contains the  additional ID's
 	      )
-	  (cond
-	   ((equal proof-tree-current-proof proof-name)
-	    ;; everything is fine
-	    ())
-	   (proof-tree-current-proof
-	    ;; new proof started while the old one is not yet finished
-	    (proof-tree-warning
-	     "Nested proofs are not supported in prooftree display."
-	     :warning)
-	    (proof-tree-start-proof proof-state proof-name))
-	   
-	   ;; now proof-tree-current-proof is nil and proof-name is non-nil
-	   ((nth 2 proof-info)
-	    ;; start of a proof -- everything ok
-	    (proof-tree-start-proof proof-state proof-name))
-	   (t
-	    ;; ... and not the start of a proof
-	    (setq proof-tree-external-display nil)
-	    (proof-tree-warning
-	     (concat
-	      "Cannot start prooftree display in the middle of a proof. "
-	      "Disable prooftree display")
-	     :error)))
-	    
+	  (proof-tree-check-proof-state proof-state proof-name)
 	  ;; send all to prooftree
 	  (proof-tree-send-goal-state
 	   proof-state proof-name cmd
@@ -660,9 +672,15 @@ The delayed output is in the region
 	  (progn
 	    (proof-tree-send-proof-completed proof-state proof-name cmd)
 	    (proof-tree-reset-existentials proof-state)
-	    (proof-tree-end-proof proof-state)
-	    (setq proof-tree-last-state proof-state))))))
+	    (proof-tree-end-proof proof-state))))))
 
+(defun proof-tree-handle-proof-command (cmd proof-info)
+  "Display current goal in prooftree unless CMD should be ignored."
+  (let ((proof-state (car proof-info))
+	(cmd-string (mapconcat 'identity cmd " ")))
+    (unless (proof-string-match proof-tree-ignored-commands-regexp cmd-string)
+      (proof-tree-handle-proof-output cmd proof-info))
+    (setq proof-tree-last-state (car proof-info))))
     
 (defun proof-tree-handle-undo (proof-info)
   "Undo prooftree to current state.
@@ -746,7 +764,7 @@ appropriate commands to prooftree."
 	       (cadr proof-info))
 	  ;; we are inside a proof: display something
 	  (proof-tree-ensure-running)
-	  (proof-tree-handle-proof-output cmd proof-info)))))))
+	  (proof-tree-handle-proof-command cmd proof-info)))))))
 
 
 (defun proof-tree-handle-delayed-output (cmd flags)

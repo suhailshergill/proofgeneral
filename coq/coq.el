@@ -168,6 +168,12 @@ On Windows you might need something like:
   :group 'coq-config
   :package-version '(ProofGeneral . "4.X"))
 
+(defcustom coq-proof-tree-ignored-commands-regexp
+  "^\\(Show\\)\\|\\(Locate\\)"
+  "Regexp for `proof-tree-ignored-commands-regexp'."
+  :type 'regexp
+  :group 'coq-proof-tree)
+
 (defcustom coq-proof-tree-current-goal-regexp
   (concat "^[0-9]+ subgoal\\(?:s, subgoal 1\\)? "
 	  "(ID \\([0-9]+\\))\n\\s-*\n\\(\\(?:.+\n\\)*\\)\n")
@@ -950,6 +956,7 @@ This is specific to `coq-mode'."
 
   ;; prooftree config
   (setq
+   proof-tree-ignored-commands-regexp coq-proof-tree-ignored-commands-regexp
    proof-tree-current-goal-regexp coq-proof-tree-current-goal-regexp
    proof-tree-update-goal-regexp coq-proof-tree-update-goal-regexp
    proof-tree-existential-regexp coq-proof-tree-existential-regexp
