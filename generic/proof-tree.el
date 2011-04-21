@@ -709,6 +709,7 @@ The delayed output of the navigation command is in the region
 
 (defun proof-tree-handle-proof-command (cmd proof-info)
   "Display current goal in prooftree unless CMD should be ignored."
+  ;; (message "PTHPC")
   (let ((proof-state (car proof-info))
 	(cmd-string (mapconcat 'identity cmd " ")))
     (unless (proof-string-match proof-tree-ignored-commands-regexp cmd-string)
@@ -725,6 +726,7 @@ points:
 * delete those goals from `proof-tree-sequent-hash' that have
   been generated after the state to which we undo now
 * change proof-tree-existentials-alist back to its previous contents"
+  ;; (message "PTHU info %s" proof-info)
   (let ((proof-state (car proof-info)))
     ;; delete sequents from the hash
     (maphash
@@ -736,7 +738,8 @@ points:
     (proof-tree-undo-existentials proof-state)
     (proof-tree-undo-current-proof proof-state)
     ;; send undo
-    (proof-tree-send-undo proof-state)
+    (if (proof-tree-is-running)
+	(proof-tree-send-undo proof-state))
     (setq proof-tree-last-state (- proof-state 1))))
 
 
@@ -781,15 +784,14 @@ undo command occured, there is a new current goal, or whether
 there is output that has been generated for prooftree only. Then
 the appropriate action is taken, which eventually will send
 appropriate commands to prooftree."
-
+  ;; (message "PTHDOI cmd %s flags %s" cmd flags)
   (unless (memq 'invisible flags)
     (let ((proof-info (funcall proof-tree-get-proof-info cmd flags)))
       (save-excursion
 	(cond
 	 ((<= (car proof-info) proof-tree-last-state)
 	  ;; went back to some old state: there must have been an undo command
-	  (if (proof-tree-is-running)
-	      (proof-tree-handle-undo proof-info)))
+	  (proof-tree-handle-undo proof-info))
 	 ((and proof-tree-external-display
 	       (memq 'proof-tree-show-subgoal flags))
 	  ;; display of a known sequent to update it in prooftree
