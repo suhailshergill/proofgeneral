@@ -108,6 +108,13 @@ additional information but do not make any proof progress."
   :type 'regexp
   :group 'proof-tree-internals)
 
+(defcustom proof-tree-navigation-command-regexp nil
+  "Regexp to match a navigation command.
+A navigation command typically focusses on a different open goal
+without changing any of the open goals."
+  :type 'regexp
+  :group 'proof-tree-internals)
+
 (defcustom proof-tree-current-goal-regexp nil
   "Regexp to match the current goal and its ID.
 The regexp is matched against the output of the proof assistant
@@ -343,12 +350,11 @@ variables."
 ;; Low-level communication primitives
 ;;
 
-(defun proof-tree-send-goal-state (state proof-name command
+(defun proof-tree-send-goal-state (state proof-name command-string
 				   current-sequent-id current-sequent-text
 				   additional-sequent-ids)
   "Send the current goal state to prooftree."
-  (let ((cmd-string (mapconcat 'identity command " "))
-	(add-id-string (mapconcat 'identity additional-sequent-ids " ")))
+  (let ((add-id-string (mapconcat 'identity additional-sequent-ids " ")))
     (process-send-string
      proof-tree-process
      (format
@@ -357,11 +363,11 @@ variables."
 	      "%s\n%s\n%s\n%s\n")
       state current-sequent-id
       (+ (string-bytes proof-name) 1)
-      (+ (string-bytes cmd-string) 1)
+      (+ (string-bytes command-string) 1)
       (+ (string-bytes current-sequent-text) 1)
       (+ (string-bytes add-id-string) 1)
       proof-name
-      cmd-string
+      command-string
       current-sequent-text
       add-id-string))))
 
@@ -378,19 +384,27 @@ variables."
     proof-name
     sequent-text)))
 
-(defun proof-tree-send-proof-completed (state proof-name cmd)
-  "Send proof completed to prooftree."
-  (let ((cmd-string (mapconcat 'identity cmd " ")))
-    (process-send-string
-     proof-tree-process
-     (format
-      "proof-complete state %d proof-name-bytes %d command-bytes %d\n%s\n%s\n"
-      state
-      (+ (string-bytes proof-name) 1)
-      (+ (string-bytes cmd-string) 1)
-      proof-name
-      cmd-string))))  
+(defun proof-tree-send-switch-goal (proof-state proof-name current-id)
+  "Send switch-to command to prooftree."
+  (process-send-string
+   proof-tree-process
+   (format "switch-goal state %d sequent %s proof-name-bytes %d\n%s\n"
+	   proof-state
+	   current-id
+	   (+ (string-bytes proof-name) 1)
+	   proof-name)))
 
+(defun proof-tree-send-proof-completed (state proof-name cmd-string)
+  "Send proof completed to prooftree."
+  (process-send-string
+   proof-tree-process
+   (format
+    "proof-complete state %d proof-name-bytes %d command-bytes %d\n%s\n%s\n"
+    state
+    (+ (string-bytes proof-name) 1)
+    (+ (string-bytes cmd-string) 1)
+    proof-name
+    cmd-string)))
 
 (defun proof-tree-send-undo (proof-state)
   "Tell prooftree to undo."
@@ -626,13 +640,12 @@ The callchain of this function ensures that PROOF-NAME is not nil."
       "Disable prooftree display")
      :error))))
 
-(defun proof-tree-handle-proof-output (cmd proof-info)
-  "Send CMD and goals in delayed output to prooftree.
-This function is called indirectly from
-`proof-shell-filter-manage-output' if there is some progress in a
-proof and if `proof-tree-external-display' is non-nil. This
-function sends the current state, the current goal and the list
-of additional open subgoals to prooftree.
+(defun proof-tree-handle-proof-progress (cmd-string proof-info)
+  "Send CMD-STRING and goals in delayed output to prooftree.
+This function is called if there is some real progress in a
+proof. This function sends the current state, the current goal
+and the list of additional open subgoals to prooftree. Prooftree
+will sort out the rest.
 
 The delayed output is in the region
 \[proof-shell-delayed-output-start, proof-shell-delayed-output-end]."
@@ -653,7 +666,7 @@ The delayed output is in the region
 	  (proof-tree-check-proof-state proof-state proof-name)
 	  ;; send all to prooftree
 	  (proof-tree-send-goal-state
-	   proof-state proof-name cmd
+	   proof-state proof-name cmd-string
 	   current-sequent-id
 	   current-sequent-text
 	   (nth 2 current-goals))
@@ -662,24 +675,44 @@ The delayed output is in the region
 	    (puthash current-sequent-id proof-state proof-tree-sequent-hash))
 	  (proof-tree-register-existentials proof-state
 					    current-sequent-id
-					    current-sequent-text)
-	  ;; remember state for undo
-	  (setq proof-tree-last-state proof-state))
+					    current-sequent-text))
       
       ;; no current goal found, maybe the proof has been completed?
       (goto-char start)
       (if (proof-re-search-forward proof-tree-proof-completed-regexp end t)
 	  (progn
-	    (proof-tree-send-proof-completed proof-state proof-name cmd)
+	    (proof-tree-send-proof-completed proof-state proof-name cmd-string)
 	    (proof-tree-reset-existentials proof-state)
 	    (proof-tree-end-proof proof-state))))))
+
+(defun proof-tree-handle-navigation (proof-info)
+  "Handle a navigation command.
+This function is called if there was a navigation command, which
+results in a different goal being current now.
+
+The delayed output of the navigation command is in the region
+\[proof-shell-delayed-output-start, proof-shell-delayed-output-end]."
+  (let ((start proof-shell-delayed-output-start)
+	(end   proof-shell-delayed-output-end)
+	(proof-state (car proof-info))
+	(proof-name (cadr proof-info)))
+    (goto-char start)
+    (if (proof-re-search-forward proof-tree-current-goal-regexp end t)
+	(let ((current-id (buffer-substring-no-properties (match-beginning 1)
+							  (match-end 1))))
+	  (proof-tree-check-proof-state proof-state proof-name)
+	  ;; send all to prooftree
+	  (proof-tree-send-switch-goal proof-state proof-name current-id)))))
+
 
 (defun proof-tree-handle-proof-command (cmd proof-info)
   "Display current goal in prooftree unless CMD should be ignored."
   (let ((proof-state (car proof-info))
 	(cmd-string (mapconcat 'identity cmd " ")))
     (unless (proof-string-match proof-tree-ignored-commands-regexp cmd-string)
-      (proof-tree-handle-proof-output cmd proof-info))
+      (if (proof-string-match proof-tree-navigation-command-regexp cmd-string)
+	  (proof-tree-handle-navigation proof-info)
+	(proof-tree-handle-proof-progress cmd-string proof-info)))
     (setq proof-tree-last-state (car proof-info))))
     
 (defun proof-tree-handle-undo (proof-info)
