@@ -24,7 +24,6 @@
     (defvar smie-indent-basic nil))     ; smie
 
   (defvar queueitems nil)       ; dynamic scope in p-s-extend-queue-hook
-  (defvar flags nil)            ; dynamic scope in proof-shell-exec-loop
   (defvar coq-time-commands nil)        ; defpacustom
   (defvar coq-use-editing-holes nil)    ; defpacustom
   (defvar coq-compile-before-require nil)       ; defpacustom
