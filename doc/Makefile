@@ -1,17 +1,17 @@
 ##
 ## Makefile for Proof General doc directory.
 ##
-## Author:  David Aspinall <da@dcs.ed.ac.uk>
+## Author:  David Aspinall <da@inf.ed.ac.uk>
 ##
-## Maintainer:  Proof General maintainer <proofgen@dcs.ed.ac.uk>
+## Maintainer:  Proof General maintainer <da+proofgen@inf.ed.ac.uk>
 ##
 ## $Id$
 ## 
 ###########################################################################
 ##
 ## Use:
-##	make info,dvi,pdf,html    - build respective docs from texi source.
-##	make doc		  - make default kinds of doc (dvi, info).
+##	make info,pdf,html    - build respective docs from texi source.
+##	make doc              - make default kinds of doc (, info).
 ##
 ###########################################################################
 

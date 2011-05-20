@@ -1365,19 +1365,8 @@ Argument SPAN has just been processed."
       (proof-done-advancing-autosave span))
 
      ;; CASE 4: A "Require" type of command is seen (Coq).
-     ;;
-     ((and
-       proof-shell-require-command-regexp
-       (proof-string-match proof-shell-require-command-regexp cmd))
-      ;; We take additional action dependent on prover
-      ;; [FIXME: use same method as in proof-shell here to
-      ;;  recompute proof-included-files and adjust it]
-      ;; FIXME 2: we could annotate the Require ourselves
-      ;; at this point to contain the buffers which are
-      ;; being included!  Then undoing can retract them.
-      (funcall proof-done-advancing-require-function span cmd)
-      ;; But do what we would have done anyway
-      (proof-done-advancing-other span))
+     ;; Case 4 has been flushed, because its functionality has been
+     ;; superseeded by the new auto-compilation feature for Coq.
 
      ;; CASE 5:  Some other kind of command (or a nested goal).
      (t
@@ -1908,6 +1897,7 @@ Assumes that point is at the end of a command."
   (if (proof-only-whitespace-to-locked-region-p)
       (error
 	 "At end of the locked region, nothing to do to!"))
+  (proof-activate-scripting nil 'advancing)
   (let ((semis (save-excursion
 		 (skip-chars-backward " \t\n"
 				      (proof-queue-or-locked-end))
@@ -1944,6 +1934,7 @@ comment, and insert or skip to the next semi)."
 		   (eq (match-end 0) nwsp)))
 	(insert proof-terminal-string)
 	(setq ins t))
+      (proof-activate-scripting nil 'advancing)
       (let* ((pos
 	      (if proof-electric-terminator-noterminator (1- (point)) (point)))
 	     (semis
@@ -1966,9 +1957,9 @@ comment, and insert or skip to the next semi)."
 SEMIS must be a non-empty list, in reverse order (last position first).
 We assume that the list is contiguous and begins at (proof-queue-or-locked-end).
 We also delete help spans which appear in the same region (in the expectation
-that these may be overwritten)."
+that these may be overwritten).
+This function expects the buffer to be activated for advancing."
   (assert semis nil "proof-assert-semis: argument must be a list")
-  (proof-activate-scripting nil 'advancing)
   (let ((startpos  (proof-queue-or-locked-end))
 	(lastpos   (nth 2 (car semis)))
 	(vanillas  (proof-semis-to-vanillas semis displayflags)))
@@ -2639,20 +2630,26 @@ Choice of function depends on configuration setting."
 ;;
 ;; Caching parse results for unedited portions of the buffer
 ;;
-;; Added (in progress) in PG 4.0
+;; Added in PG 4.1
 ;;
-
-(deflocal proof-segment-up-to-cache nil)
-(deflocal proof-segment-up-to-cache-start 0)
-(deflocal proof-last-edited-low-watermark nil)
-
 ;; A simplistic first attempt: we only cache the last region that was
 ;; parsed.  It would be better to maintain a parse cache for the
-;; unedited prefix of the buffer.  Also, we may perhaps assume that
-;; extending the parsed region can only possibly affect the last command
-;; in the cache but leaves the rest intact.  (NB: in Isabelle/Isar a
-;; command can be a proper prefix of a longer one and there are no
-;; explicit terminators).
+;; unedited prefix of the buffer or for individual segments like
+;; PGIP Emacs PG does.  Or to parse during idle like font-lock.
+;;
+;; We assume that extending the parsed region can only possibly affect
+;; the last command in the cache but leaves the rest intact.  (NB: in
+;; Isabelle/Isar a command can be a proper prefix of a longer one and
+;; there are no explicit terminators).
+
+
+(deflocal proof-segment-up-to-cache nil
+  "Cache used to speed up parsing.
+Stores recent results of `proof-segment-up-to' in reverse order.")
+
+(deflocal proof-segment-up-to-cache-start 0)
+(deflocal proof-segment-up-to-cache-end 0)
+(deflocal proof-last-edited-low-watermark nil)
 
 (defun proof-segment-up-to-using-cache (pos &rest args)
   "A wrapper for `proof-segment-up-to' which uses a cache to speed things up."
@@ -2663,36 +2660,41 @@ Choice of function depends on configuration setting."
 	 (>= (proof-queue-or-locked-end) 
 	     proof-segment-up-to-cache-start)
 	 (setq res (proof-segment-cache-contents-for pos))
+	 ;; only use result if last edit point is >1 segment below
 	 (or (not proof-last-edited-low-watermark)
 	     (> proof-last-edited-low-watermark
-		(nth 2 (car (last res))))))
+		(nth 2 (car res)))))
 	(progn
 	  (proof-debug "proof-segment-up-to-using-cache: re-using %d parse results"
 		       (length res))
 	  res)
       ;; Cache not useful, perform a fresh parse
       (let ((semis (proof-segment-up-to pos args)))
+	(setq proof-segment-up-to-cache (reverse semis))
 	(setq proof-segment-up-to-cache-start (proof-queue-or-locked-end))
-	(setq proof-segment-up-to-cache (copy-list semis))
-	(if (car-safe semis)
-	    (setq proof-last-edited-low-watermark
-		  (max
-		   (or proof-last-edited-low-watermark (point-max))
-		   ;; nudge up
-		   (nth 2 (car semis)))))
+	(setq proof-segment-up-to-cache-end (if semis (nth 2 (car semis))))
+	(when proof-last-edited-low-watermark
+	  (if (<= proof-last-edited-low-watermark
+		  proof-segment-up-to-cache-end)
+	      (setq proof-last-edited-low-watermark nil)))
 	semis))))
 
 (defun proof-segment-cache-contents-for (pos)
-  (let ((semis  (reverse proof-segment-up-to-cache))
-	(start  (proof-queue-or-locked-end))
-	usedsemis semiend)
-    (while semis
-      (setq semiend (nth 2 (car semis)))
-      (if (> semiend start)
-	  (setq usedsemis (cons (car semis) usedsemis)))
-      (setq semis
-	    (if (<= semiend pos) (cdr semis))))
-    usedsemis))
+  ;; only return result if we have cache for complete region
+  (when (<= pos proof-segment-up-to-cache-end) 
+    (let ((semis   proof-segment-up-to-cache)
+	  (start  (proof-queue-or-locked-end))
+	  usedsemis semiend)
+      (while semis
+	(setq semiend (nth 2 (car semis)))
+	(if (> semiend start)
+	    (setq usedsemis (cons (car semis) usedsemis)))
+	(setq semis
+	      (if (or (< semiend pos) 
+		      ;; matches parsing-until-find-something behaviour
+		      (and (= semiend pos) (not usedsemis)))
+		  (cdr semis))))
+      usedsemis)))
 
 (defun proof-script-after-change-function (start end prelength)
   "Value for `after-change-functions' in proof script buffers."
