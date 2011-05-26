@@ -1408,7 +1408,8 @@ output that slows down processing.
 
 After processing the current output, the last step undertaken
 by the filter is to send the next command from the queue."
-  (let ((cmd   (nth 1 (car proof-action-list)))
+  (let ((span  (caar proof-action-list))
+	(cmd   (nth 1 (car proof-action-list)))
 	(flags (nth 3 (car proof-action-list))))
 
     ;; A copy of the last message, verbatim, never modified.
@@ -1427,7 +1428,7 @@ by the filter is to send the next command from the queue."
 		;; only display result for last output
 		(proof-shell-handle-delayed-output)))
       ;; send output to the proof tree visualizer
-      (proof-tree-handle-delayed-output cmd flags))))
+      (proof-tree-handle-delayed-output cmd flags span))))
 
 
 (defsubst proof-shell-display-output-as-response (flags str)

@@ -1805,7 +1805,7 @@ As part of the urgent actions the hook `coq-show-sequent-command'
 is always called. Before that
 `coq-extract-instantiated-existentials' might be called and fill
 `coq-sequent-id-assoc'. If this variable is t then
-`coq-show-sequent-command' wil l use the content of
+`coq-show-sequent-command' will use the content of
 `coq-sequent-id-assoc', if nil will recompute the data itself.
 The variable is set to t inside `coq-extract-goal-numbers' and
 set to nil just before leaving `coq-show-sequent-command'.")
@@ -1823,9 +1823,13 @@ set to nil just before leaving `coq-show-sequent-command'.")
 	 (backtrack-cmd (string-match coq-backtrack-command-regexp cmd-string)))
     (list
      (if backtrack-cmd (car info) (- (car info) 1))
-     (nth 3 info) (eq (nth 1 info) 1))))
+     (nth 3 info))))
 
 (defun coq-extract-goal-numbers (start end)
+  "Store current sequent numbers in `coq-sequent-id-assoc'.
+This function parses the output between START and END and
+searches for the current and any additional goals. All goals
+found are stored in `coq-sequent-id-assoc' for later use."
   (setq coq-sequent-id-assoc nil
         coq-sequent-id-assoc-valid t)
   (goto-char start)
