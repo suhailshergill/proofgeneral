@@ -129,6 +129,15 @@ without changing any of the open goals."
   :type 'regexp
   :group 'proof-tree-internals)
 
+(defcustom proof-tree-cheating-regexp nil
+  "Regexp to match cheating proofer commands.
+A cheating command finishes the current goal without proving it
+to permit the user to first focus on other parts of the
+development. Examples are \"sorry\" in Isabelle and \"admit\" in
+Coq."
+  :type 'regexp
+  :group 'proof-tree-internals)
+
 (defcustom proof-tree-current-goal-regexp nil
   "Regexp to match the current goal and its ID.
 The regexp is matched against the output of the proof assistant
@@ -386,7 +395,7 @@ variables."
 ;; Low-level communication primitives
 ;;
 
-(defun proof-tree-send-goal-state (state proof-name command-string
+(defun proof-tree-send-goal-state (state proof-name command-string cheated-flag
 				   current-sequent-id current-sequent-text
 				   additional-sequent-ids)
   "Send the current goal state to prooftree."
@@ -394,10 +403,13 @@ variables."
     (process-send-string
      proof-tree-process
      (format
-      (concat "current-goals state %d current-sequent %s proof-name-bytes %d "
+      (concat "current-goals state %d current-sequent %s %s "
+	      "proof-name-bytes %d "
 	      "command-bytes %d sequent-text-bytes %d additional-id-bytes %d\n"
 	      "%s\n%s\n%s\n%s\n")
-      state current-sequent-id
+      state
+      current-sequent-id
+      (if cheated-flag "cheated" "not-cheated")
       (+ (string-bytes proof-name) 1)
       (+ (string-bytes command-string) 1)
       (+ (string-bytes current-sequent-text) 1)
@@ -430,13 +442,15 @@ variables."
 	   (+ (string-bytes proof-name) 1)
 	   proof-name)))
 
-(defun proof-tree-send-proof-completed (state proof-name cmd-string)
+(defun proof-tree-send-proof-completed (state proof-name
+					      cmd-string cheated-flag)
   "Send proof completed to prooftree."
   (process-send-string
    proof-tree-process
    (format
-    "proof-complete state %d proof-name-bytes %d command-bytes %d\n%s\n%s\n"
+    "proof-complete state %d %s proof-name-bytes %d command-bytes %d\n%s\n%s\n"
     state
+    (if cheated-flag "cheated" "not-cheated")
     (+ (string-bytes proof-name) 1)
     (+ (string-bytes cmd-string) 1)
     proof-name
@@ -673,6 +687,8 @@ The delayed output is in the region
 	 (end   proof-shell-delayed-output-end)
 	 (proof-state (car proof-info))
 	 (proof-name (cadr proof-info))
+	 (cheated-flag (proof-string-match
+			proof-tree-cheating-regexp cmd-string))
 	 (current-goals (proof-tree-extract-goals start end)))
     (if current-goals
 	(let ((current-sequent-id (car current-goals))
@@ -682,6 +698,7 @@ The delayed output is in the region
 	  ;; send all to prooftree
 	  (proof-tree-send-goal-state
 	   proof-state proof-name cmd-string
+	   cheated-flag
 	   current-sequent-id
 	   current-sequent-text
 	   (nth 2 current-goals))
@@ -696,7 +713,8 @@ The delayed output is in the region
       (goto-char start)
       (if (proof-re-search-forward proof-tree-proof-completed-regexp end t)
 	  (progn
-	    (proof-tree-send-proof-completed proof-state proof-name cmd-string)
+	    (proof-tree-send-proof-completed proof-state proof-name
+					     cmd-string cheated-flag)
 	    (proof-tree-reset-existentials proof-state))))))
 
 (defun proof-tree-handle-navigation (proof-info)

@@ -179,6 +179,12 @@ On Windows you might need something like:
   :type 'regexp
   :group 'coq-proof-tree)
 
+(defcustom coq-proof-tree-cheating-regexp
+  "admit"
+  "Regexp for `proof-tree-cheating-regexp'."
+  :type 'regexp
+  :group 'coq-proof-tree)
+
 (defcustom coq-proof-tree-current-goal-regexp
   (concat "^[0-9]+ subgoal\\(?:s, subgoal 1\\)? "
 	  "(ID \\([0-9]+\\))\n\\s-*\n\\(\\(?:.+\n\\)*\\)\n")
@@ -963,6 +969,7 @@ This is specific to `coq-mode'."
   (setq
    proof-tree-ignored-commands-regexp coq-proof-tree-ignored-commands-regexp
    proof-tree-navigation-command-regexp coq-navigation-command-regexp
+   proof-tree-cheating-regexp coq-proof-tree-cheating-regexp
    proof-tree-current-goal-regexp coq-proof-tree-current-goal-regexp
    proof-tree-update-goal-regexp coq-proof-tree-update-goal-regexp
    proof-tree-existential-regexp coq-proof-tree-existential-regexp
