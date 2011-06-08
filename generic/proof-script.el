@@ -1977,8 +1977,11 @@ No effect if prover is busy."
       (proof-interrupt-process)
       (proof-shell-wait))
     (save-excursion
-      (goto-char beg)
-      (proof-retract-until-point))))
+      (save-restriction ;; see Trac#403
+	(widen)
+	(goto-char beg)
+	(proof-retract-until-point)
+	(proof-shell-wait)))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2202,7 +2205,7 @@ Before the retraction is calculated, we enforce the file-level
 protocol with `proof-activate-scripting'.  This has a couple
 of effects:
 
-1. If the file is is completely processed, we have to re-open it
+1. If the file is completely processed, we have to re-open it
 for scripting again which may involve retracting
 other (dependent) files.
 
@@ -2672,7 +2675,7 @@ Stores recent results of `proof-segment-up-to' in reverse order.")
       (let ((semis (proof-segment-up-to pos args)))
 	(setq proof-segment-up-to-cache (reverse semis))
 	(setq proof-segment-up-to-cache-start (proof-queue-or-locked-end))
-	(setq proof-segment-up-to-cache-end (if semis (nth 2 (car semis))))
+	(setq proof-segment-up-to-cache-end (if semis (nth 2 (car semis)) 0))
 	(when proof-last-edited-low-watermark
 	  (if (<= proof-last-edited-low-watermark
 		  proof-segment-up-to-cache-end)

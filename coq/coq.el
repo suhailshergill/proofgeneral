@@ -103,7 +103,7 @@ Set to t if you want this feature."
 
 (require 'coq-syntax)
 ;; FIXME: Even if we don't use coq-indent for indentation, we still need it for
-;; coq-find-command-end-backward and coq-find-real-start.
+;; coq-script-parse-cmdend-forward/backward and coq-find-real-start.
 (require 'coq-indent)
 
 (defcustom coq-prog-env nil
@@ -320,6 +320,7 @@ SMIE is a navigation and indentation framework available in Emacs ≥ 23.3."
            ("if" exp "then" exp "else" exp)
            ("forall" exp "," exp)
            ("(" exps ")")
+           ("{|" exps "|}")
            (exp ":" exp)
            (exp "->" exp))
       ;; Having "return" here rather than as a separate rule in `exp'
@@ -328,45 +329,248 @@ SMIE is a navigation and indentation framework available in Emacs ≥ 23.3."
       (branches (exp "=>" exp) (branches "|" branches))
       (assigns (exp ":=" exp) (assigns ";" assigns))
       (exps (exp) (exps "," exps))
-      (decls ("Lemma" exp ":=" exp)
-             ("Definition" exp ":=" exp)
-             ("Fixpoint" exp ":=" exp)
-             ("Inductive" exp ":=" branches)
-             ("Notation" exp ":=" exp)
-             ;; The above elements are far from the only ones terminated by "."
-             ;; (think of all the tactics).  So we won't list them all, instead
-             ;; we'll use "." as separator rather than terminator.
-             ;; This has the downside that smie-forward-sexp on a "Definition"
-             ;; stops right before the "." rather than right after.
-             (decls "." decls)))
+      (subtactics (tactics "|" tactics))
+      (tactics (tactics ";" tactics) ("[" subtactics "]"))
+      (cmds ("Lemma" exp ":=" exp)
+            ("Definition" exp ":=" exp)
+            ("Let" exp ":=" exp)
+            ("Function" exp ":=" exp)
+            ("Fixpoint" exp ":=" exp)
+            ("Inductive" exp ":= inductive" branches)
+            ("CoInductive" exp ":= inductive" branches)
+            ("Notation" exp ":=" exp)
+            ("Record" exp ":=" exp)
+            (tactics)
+            ;; The above elements are far from the only ones terminated by "."
+            ;; (think of all the tactics).  So we won't list them all, instead
+            ;; we'll use "." as separator rather than terminator.
+            ;; This has the downside that smie-forward-sexp on a "Definition"
+            ;; stops right before the "." rather than right after.
+            (cmds "." cmds)
+            ;; The elements below are trying to capture the syntactic structure
+            ;; layered above the commands language.
+            ("BeginSubproof" cmds "EndSubproof")
+            ("Proof" cmds "Qed")
+            ("Proof" cmds "Save")
+            ("Proof" cmds "Defined")
+            ("Proof" cmds "Admitted")
+            ("Proof" cmds "Abort")
+            ("Module" cmds "End")
+            ("Section" cmds "End")))
     ;; Resolve the "trailing expression ambiguity" as in "else x -> b".
     '((nonassoc "else" "in" "=>" ",") (left ":") (assoc "->"))
     ;; Declare that we don't care about associativity of separators.
     '((assoc "|")) '((assoc ",")) '((assoc ";")) '((assoc ".")))))
   "Parsing table for Coq.  See `smie-grammar'.")
 
+(defun coq-smie-search-token-forward (tokens &optional end)
+  "Search for one of TOKENS between point and END."
+  (unless end (setq end (point-max)))
+  (condition-case nil
+      (catch 'found
+        (while (< (point) end)
+          ;; The default lexer is faster and is good enough for our needs.
+          (let ((next (smie-default-forward-token)))
+            (cond
+             ((zerop (length next)) (forward-sexp 1))
+             ((member next tokens) (throw 'found next))))))
+    (scan-error nil)))
+
+(defun coq-smie-search-token-backward (tokens &optional end)
+  "Search for one of TOKENS between point and END."
+  (unless end (setq end (point-min)))
+  (condition-case nil
+      (catch 'found
+        (while (> (point) end)
+          ;; The default lexer is faster and is good enough for our needs.
+          (let ((next (smie-default-backward-token)))
+            (cond
+             ((zerop (length next)) (forward-sexp -1))
+             ((member next tokens) (throw 'found next))))))
+    (scan-error nil)))
+
+;; Lexer.
+;; - We distinguish ":=" from ":= inductive" to avoid the circular precedence
+;;   constraint ":= < | < ; < :=" where ":= < |" is due to Inductive
+;;   definitions, "| < ;" is due to tactics precedence, "; < :=" is due to
+;;   "let x:=3; y:=4 in...".
+;; - We distinguish the ".-selector" from the terminator "." for
+;;   obvious reasons.
+;; - We distinguish the "Module M." from "Module M := exp." since the first
+;;   opens a new scope (closed by End) whereas the other doesn't.
+;; - We drop "Program" because it's easier to consider "Program Function"
+;;   as a single token (which behaves like "Function" w.r.t indentation and
+;;   parsing) than to get the parser to handle it correctly.
+
+(defun coq-smie-forward-token ()
+  (let ((tok (smie-default-forward-token)))
+    (cond
+     ((equal tok ".")
+      ;; Distinguish field-selector "." from terminator ".".
+      (if (or (looking-at "(")                ;Record selector.
+              (and (looking-at "[[:alpha:]]") ;Maybe qualified id.
+                   (save-excursion
+                     (goto-char (1- (point)))
+                     (skip-syntax-backward "w_")
+                     (looking-at "[[:upper:]]"))))
+          ".-selector" "."))
+     ((equal tok "Program")
+      (let ((pos (point))
+            (next (smie-default-forward-token)))
+        (if (member next '("Fixpoint" "Declaration" "Lemma"))
+            next
+          (goto-char pos)
+          tok)))
+     ((equal tok "Module")
+      (let ((pos (point))
+            (next (smie-default-forward-token)))
+        (unless (equal next "Type") (goto-char pos))
+        (save-excursion
+          (if (equal (coq-smie-search-token-forward '(":=" ".")) ":=")
+              "Module def" tok))))
+     ((and (equal tok "") (looking-at "{|")) (goto-char (match-end 0)) "{|")
+     ((and (equal tok "|") (eq (char-after) ?\}))
+      (goto-char (1+ (point))) "|}")
+     ((and (equal tok ":=")
+           (save-excursion
+             (member (coq-smie-search-token-backward
+                      '("let" "Inductive" "Coinductive" "."))
+                     '("Inductive" "CoInductive"))))
+      ":= inductive")
+     (tok))))
+
+(defun coq-smie-backward-token ()
+  (let ((tok (smie-default-backward-token)))
+    (cond
+     ((equal tok ".")
+      ;; Distinguish field-selector "." from terminator ".".
+      (if (or (looking-at "\\.(")             ;Record selector.
+              (and (looking-at "\\.[[:alpha:]]") ;Maybe qualified id.
+                   (save-excursion
+                     (skip-syntax-backward "w_")
+                     (looking-at "[[:upper:]]"))))
+          ".-selector" "."))
+     ((member tok '("Fixpoint" "Declaration" "Lemma"))
+      (let ((pos (point))
+            (prev (smie-default-backward-token)))
+        (unless (equal prev "Program") (goto-char pos))
+        tok))
+     ((equal tok "Type")
+      (let ((pos (point))
+            (prev (smie-default-backward-token)))
+        (if (equal prev "Module")
+            prev
+          (goto-char pos)
+          tok)))
+     ((equal tok "Module")
+      (save-excursion
+        (if (equal (coq-smie-search-token-forward '(":=" ".")) ":=")
+            "Module def" tok)))
+     ((and (equal tok "|") (eq (char-before) ?\{))
+      (goto-char (1- (point))) "{|")
+     ((and (equal tok "") (looking-back "|}" (- (point) 2)))
+      (goto-char (match-beginning 0)) "|}")
+     ((and (equal tok ":=")
+           (save-excursion
+             (member (coq-smie-search-token-backward
+                      '("let" "Inductive" "Coinductive" "."))
+                     '("Inductive" "CoInductive"))))
+      ":= inductive")
+     (tok))))
+
 (defun coq-smie-rules (kind token)
-  "Indentation rules for Coq.  See `smie-rules-function'."
+  "Indentation rules for Coq.  See `smie-rules-function'.
+KIND is the situation and TOKEN is the thing w.r.t which the rule applies."
   (case kind
     (:elem (case token
              (basic proof-indent)))
-    (:list-intro (member token '("fun" "forall")))
+    (:list-intro
+     (or (member token '("fun" "forall"))
+         ;; We include "." in list-intro for the ". { .. } \n { .. }" so the
+         ;; second {..} is aligned with the first rather than being indented as
+         ;; if it were an argument to the first.
+         (when (equal token ".")
+           (smie-default-forward-token)
+           (forward-comment (point-max))
+           (looking-at "{"))))
     (:after
      (cond
       ;; Override the default indent step added because of their presence
       ;; in smie-closer-alist.
+      ((equal token "with") 4)
       ((member token '("," ":=")) 0)))
     (:before
      (cond
       ((equal token "return") (if (smie-rule-parent-p "match") 3))
-      ((equal token "|") (if (smie-rule-parent-p "with") 3))
+      ((equal token "|")
+       (if (smie-rule-prev-p "with")
+           (- (funcall smie-rules-function :after "with") 2)
+         (smie-rule-separator kind)))
       ((equal token ":=")
-       (if (smie-rule-parent-p "Definition" "Lemma" "Fixpoint" "Inductive")
-           (or proof-indent smie-indent-basic)))))))
+       (if (smie-rule-parent-p "Definition" "Lemma" "Fixpoint" "Inductive"
+                               "Function" "Let" "Record")
+           (or proof-indent smie-indent-basic)))
+      ((equal token ".")
+       (if (smie-rule-parent-p "BeginSubproof" "Module" "Section" "Proof") 2))
+      ((and (equal token "{") (smie-rule-prev-p ":="))
+       (smie-rule-parent))
+      ((and (equal token ",") (smie-rule-parent-p "forall")) 2)
+      ((and (equal token ":") (smie-rule-parent-p "Lemma")) 2)
+      ((and (member token '("Qed" "Save" "Defined" "Admitted" "Abort"))
+            (smie-rule-parent-p "Module" "Section"))
+       ;; ¡¡Major gross hack!!
+       ;; This typically happens when a Lemma had no "Proof" keyword.
+       ;; We should ideally find some other way to handle it (e.g. matching Qed
+       ;; not with Proof but with any of the keywords like Lemma that can
+       ;; start a new proof), but we can workaround the problem here, because
+       ;; SMIE happened to decide arbitrarily that Qed will stop before Module
+       ;; when parsing backward.
+       ;; FIXME: This is fundamentally very wrong, but it seems to work
+       ;; OK in practice.
+       (smie-rule-parent 2))
+      ))))
 
 ;;
 ;; Auxiliary code for Coq modes
 ;;
+
+
+
+;;;;;;;;;;; Trying to accept { and } as terminator for empty commands. Actually
+;;;;;;;;;;; I am experimenting two new commands "{" and "}" (without no
+;;;;;;;;;;; trailing ".") which behave like BeginSubProof and EndSubproof. The
+;;;;;;;;;;; absence of a trailing "." makes it difficult to distinguish between
+;;;;;;;;;;; "{" of normal coq code (implicits, records) and this the new
+;;;;;;;;;;; commands. We therefore define a coq-script-parse-function to this
+;;;;;;;;;;; purpose.
+
+; coq-end-command-regexp is ni coq-indent.el
+(setq coq-script-command-end-regexp coq-end-command-regexp)
+;        "\\(?:[^.]\\|\\(?:\\.\\.\\)\\)\\.\\(\\s-\\|\\'\\)")
+
+
+
+(defun coq-empty-command-p ()
+  "Test if between point and previous command is empty.
+Comments are ignored, of course."
+  (let ((end (point))
+        (start (coq-find-not-in-comment-backward "[^[:space:]]")))
+    ;; we must find a "." to be sure, because {O} {P} is allowed in definitions
+    ;; with implicits --> this function is recursive
+    (if (looking-at "{\\|}") (coq-empty-command-p)
+      (looking-at "\\."))))
+
+
+; slight modification of proof-script-generic-parse-cmdend (one of the
+; candidate for proof-script-parse-function), to allow "{" and "}" to be
+; command terminator when the command is empty. TO PLUG: swith the comment
+; below and rename coq-script-parse-function2 into coq-script-parse-function
+(defun coq-script-parse-function ()
+  "For `proof-script-parse-function' if `proof-script-command-end-regexp' set."
+  (coq-script-parse-cmdend-forward))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;; End of "{" and "} experiments ;;;;;;;;;;;;
+
 
 (defun coq-set-undo-limit (undos)
   (proof-shell-invisible-command (format "Set Undo %s . " undos)))
@@ -831,8 +1035,8 @@ This is specific to `coq-mode'."
   ;; Coq error messages are thrown off by TAB chars.
   (set (make-local-variable 'indent-tabs-mode) nil)
   (setq proof-terminal-string ".")
-  (setq proof-script-command-end-regexp
-        "\\(?:[^.]\\|\\(?:\\.\\.\\)\\)\\.\\(\\s-\\|\\'\\)")
+  (setq proof-script-command-end-regexp coq-script-command-end-regexp)
+  (setq proof-script-parse-function 'coq-script-parse-function)
   (setq proof-script-comment-start "(*")
   (setq proof-script-comment-end "*)")
   (setq proof-unnamed-theorem-name "Unnamed_thm") ; Coq's default name
@@ -871,7 +1075,9 @@ This is specific to `coq-mode'."
         proof-script-imenu-generic-expression coq-generic-expression)
 
   (if (and coq-use-smie (fboundp 'smie-setup))
-      (smie-setup coq-smie-grammar #'coq-smie-rules)
+      (smie-setup coq-smie-grammar #'coq-smie-rules
+                  :forward-token #'coq-smie-forward-token
+                  :backward-token #'coq-smie-backward-token)
     (require 'coq-indent)
     (setq
      ;; indentation is implemented in coq-indent.el
@@ -1239,15 +1445,12 @@ identifier and should therefore not be matched by this regexp.")
 (defvar coq-compile-history nil
   "History of external Coq compilation commands.")
 
-(defvar coq-compile-response-buffer-name "*coq-compile-response*"
+(defvar coq-compile-response-buffer "*coq-compile-response*"
   "Name of the buffer to display error messages from coqc and coqdep.")
-
-(defvar coq-compile-response-buffer nil
-  "Buffer to display error messages from coqc and coqdep.")
 
 
 (defvar coq-debug-auto-compilation nil
-  "Display more messages during compilation")
+  "*Display more messages during compilation")
 
 
 ;; basic utilities
@@ -1373,24 +1576,25 @@ FILE should be an absolute file name. It can be nil if
 (defun coq-init-compile-response-buffer (command)
   "Initialize the buffer for the compilation output.
 If `coq-compile-response-buffer' exists, empty it. Otherwise
-create a buffer with name `coq-compile-response-buffer-name', put
+create a buffer with name `coq-compile-response-buffer', put
 it into `compilation-mode' and store it in
 `coq-compile-response-buffer' for later use. Argument COMMAND is
 the command whose output will appear in the buffer."
-  (if (bufferp coq-compile-response-buffer)
-      (let ((inhibit-read-only t))
-        (with-current-buffer coq-compile-response-buffer
-          (erase-buffer)))
-    (setq coq-compile-response-buffer
-          (get-buffer-create coq-compile-response-buffer-name))
-    (with-current-buffer coq-compile-response-buffer
-      (compilation-mode)))
-  ;; I don't really care if somebody gets the right mode when
-  ;; he saves and reloads this buffer. However, error messages in
-  ;; the first line are not found for some reason ...
-  (let ((inhibit-read-only t))
-    (with-current-buffer coq-compile-response-buffer
-      (insert "-*- mode: compilation; -*-\n\n" command "\n"))))
+  (let ((buffer-object (get-buffer coq-compile-response-buffer)))
+    (if buffer-object
+        (let ((inhibit-read-only t))
+          (with-current-buffer buffer-object
+            (erase-buffer)))
+      (setq buffer-object
+            (get-buffer-create coq-compile-response-buffer))
+      (with-current-buffer buffer-object
+        (compilation-mode)))
+    ;; I don't really care if somebody gets the right mode when
+    ;; he saves and reloads this buffer. However, error messages in
+    ;; the first line are not found for some reason ...
+    (let ((inhibit-read-only t))
+      (with-current-buffer buffer-object
+        (insert "-*- mode: compilation; -*-\n\n" command "\n")))))
 
 (defun coq-display-compile-response-buffer ()
   "Display the errors in `coq-compile-response-buffer'."
@@ -1399,7 +1603,7 @@ the command whose output will appear in the buffer."
     (let ((font-lock-verbose nil)) ; shut up font-lock messages
       (font-lock-fontify-buffer)))
   ;; Make it so the next C-x ` will use this buffer.
-  (setq next-error-last-buffer coq-compile-response-buffer)
+  (setq next-error-last-buffer (get-buffer coq-compile-response-buffer))
   (let ((window (display-buffer coq-compile-response-buffer)))
     (if proof-shrink-windows-tofit
         (save-excursion
@@ -1408,7 +1612,7 @@ the command whose output will appear in the buffer."
 
 (defun coq-get-library-dependencies (lib-src-file &optional command-intro)
   "Compute dependencies of LIB-SRC-FILE.
-Invoke \"coq-dep\" on lib-src-file and parse the output to
+Invoke \"coqdep\" on lib-src-file and parse the output to
 compute the compiled coq library object files on which
 LIB-SRC-FILE depends. The return value is either a string or a
 list. If it is a string then an error occurred and the string is
@@ -1470,7 +1674,7 @@ Display errors in buffer `coq-compile-response-buffer'."
     (if coq-debug-auto-compilation
         (message "compilation %s exited with %s, output |%s|"
                  src-file coqc-status
-                 (with-current-buffer proof-response-buffer
+                 (with-current-buffer coq-compile-response-buffer
                    (buffer-string))))
     (unless (eq coqc-status 0)
       (coq-display-compile-response-buffer)
@@ -1664,6 +1868,7 @@ function returns () if MODULE-ID comes from the standard library."
           ;; does currently not work. We do have exact position information
           ;; about the span, but we don't know how much white space there is
           ;; between the start of the span and the start of the command string.
+          ;; Check that coq-compile-response-buffer is a valid buffer!
           ;; (with-current-buffer coq-compile-response-buffer
           ;;   (insert
           ;;    (format "File \"%s\", line %d\n%s.\n"
@@ -2097,7 +2302,7 @@ Based on idea mentioned in Coq reference manual."
       ((str (string-match "<info type=\"infoH\">\\([^<]*\\)</info>"
                           proof-shell-last-response-output))
        (substr (match-string 1 proof-shell-last-response-output)))
-    (coq-find-command-end-backward)
+    (coq-script-parse-cmdend-backward)
     (let ((inhibit-read-only t))
       (insert (concat " as " substr)))))
 
@@ -2165,25 +2370,24 @@ Completion is on a quasi-exhaustive list of Coq tacticals."
 (define-key coq-keymap [(control ?))] 'coq-end-Section)
 (define-key coq-keymap [(control ?s)] 'coq-Show)
 (define-key coq-keymap [(control ?t)] 'coq-insert-tactic)
-(define-key coq-keymap [(control ?T)] 'coq-insert-tactical)
-(define-key coq-keymap [(control ?r)] 'proof-store-response-win)
-(define-key coq-keymap [(control ?G)] 'proof-store-goals-win)
+(define-key coq-keymap [?t] 'coq-insert-tactical)
+(define-key coq-keymap [?r] 'proof-store-response-win)
+(define-key coq-keymap [?g] 'proof-store-goals-win)
 
-;(define-key coq-keymap [(control ?!)] 'coq-insert-solve-tactic)
 (define-key coq-keymap [?!] 'coq-insert-solve-tactic) ; will work in tty
 
 (define-key coq-keymap [(control ?\s)] 'coq-insert-term)
 (define-key coq-keymap [(control return)] 'coq-insert-command)
 
 
-;(define-key coq-keymap [(control ?)] 'coq-insert-requires)
+(define-key coq-keymap [(control ?r)] 'coq-insert-requires)
 (define-key coq-keymap [(control ?o)] 'coq-SearchIsos)
 
 (define-key coq-keymap [(control ?p)] 'coq-Print)
 (define-key coq-keymap [(control ?b)] 'coq-About)
 (define-key coq-keymap [(control ?a)] 'coq-SearchAbout)
 (define-key coq-keymap [(control ?c)] 'coq-Check)
-(define-key coq-keymap [(control ?H)] 'coq-PrintHint)
+(define-key coq-keymap [?h] 'coq-PrintHint)
 (define-key coq-keymap [(control ?l)] 'coq-LocateConstant)
 (define-key coq-keymap [(control ?n)] 'coq-LocateNotation)
 
