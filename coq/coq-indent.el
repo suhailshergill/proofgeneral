@@ -92,7 +92,7 @@ detect if they start something or not."
 ;; ". " and "... " are command endings, ".. " is not, same as in
 ;; proof-script-command-end-regexp in coq.el
 (defconst coq-end-command-regexp
-  "\\(?2:[^.]\\|\\.\\.\\)?\\(?1:\\.\\)\\(?3:\\s-\\|\\'\\)\\|\\(?1:{\\)\\(?3:[^|]\\)\\|\\(?2:[^|]\\)\\(?1:}\\)"
+  "\\(?2:[^.]\\|\\.\\.\\)\\(?1:\\.\\)\\(?3:\\s-\\|\\'\\)\\|\\(?1:{\\)\\(?3:[^|]\\)\\|\\(?2:[^|]\\)\\(?1:}\\)"
   "Regexp matching end of a command. There are 3 substrings:
 * number 1 is the real coq ending string,
 * number 2 is the left context matched that is not part of the ending string
@@ -233,6 +233,17 @@ and return nil."
         (forward-char -1) ; always nil, don't use "and"
         (looking-at "{\\|\\."))) 1)
    (t 0)))
+
+(defun coq-empty-command-p ()
+  "Test if between point and previous command is empty.
+Comments are ignored, of course."
+  (let ((end (point))
+        (start (coq-find-not-in-comment-backward "[^[:space:]]")))
+    ;; we must find a "." to be sure, because {O} {P} is allowed in definitions
+    ;; with implicits --> this function is recursive
+    (if (looking-at "{\\|}") (coq-empty-command-p)
+      (looking-at "\\."))))
+
 
 ; slight modification of proof-script-generic-parse-cmdend (one of the
 ; candidate for proof-script-parse-function), to allow "{" and "}" to be
